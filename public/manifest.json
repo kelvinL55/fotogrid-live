@@ -1,0 +1,22 @@
+{
+  "short_name": "FotoGrid",
+  "name": "FotoGrid Live",
+  "description": "Sincronización en tiempo real de cuadrículas fotográficas",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#090d16",
+  "theme_color": "#0284c7",
+  "display": "standalone",
+  "orientation": "portrait"
+}
