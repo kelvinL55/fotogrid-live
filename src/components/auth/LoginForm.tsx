@@ -55,13 +55,23 @@ export function LoginForm({ redirectTo = '/dashboard' }: { redirectTo?: string }
           email,
           password,
         });
+
         if (error) throw error;
+
         showToast('¡Sesión iniciada correctamente!', 'success');
         window.location.href = redirectTo;
       }
     } catch (error: any) {
       console.error('Error Auth:', error);
-      showToast(error.message || 'Error de autenticación.', 'error');
+      
+      if (error.name === 'AuthRetryableFetchError' || error.message?.includes('Failed to fetch') || error.message?.includes('fetch failed')) {
+        showToast(
+          'Error de conexión: No se pudo conectar con Supabase. Asegúrate de configurar tus claves reales (NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_ANON_KEY) en tu .env.local o en Vercel.',
+          'error'
+        );
+      } else {
+        showToast(error.message || 'Error de autenticación.', 'error');
+      }
     } finally {
       setLoading(false);
     }
@@ -86,7 +96,11 @@ export function LoginForm({ redirectTo = '/dashboard' }: { redirectTo?: string }
       if (error) throw error;
       showToast('¡Enlace mágico enviado a tu correo electrónico!', 'success');
     } catch (error: any) {
-      showToast(error.message || 'Error al enviar el enlace mágico.', 'error');
+      if (error.name === 'AuthRetryableFetchError' || error.message?.includes('Failed to fetch')) {
+        showToast('Error de conexión: No se pudo conectar con Supabase.', 'error');
+      } else {
+        showToast(error.message || 'Error al enviar el enlace mágico.', 'error');
+      }
     } finally {
       setLoading(false);
     }
