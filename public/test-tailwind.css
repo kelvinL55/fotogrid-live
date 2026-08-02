@@ -1,6 +1,8 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@tailwindcss base;
+
+@tailwindcss components;
+
+@tailwindcss utilities;
 
 :root {
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -15,11 +17,13 @@ body {
 }
 
 /* Animaciones suaves */
+
 @keyframes fadeIn {
   from {
     opacity: 0;
     transform: scale(0.98);
   }
+
   to {
     opacity: 1;
     transform: scale(1);
@@ -31,6 +35,7 @@ body {
 }
 
 /* Personalización de Scrollbars en modo oscuro */
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
