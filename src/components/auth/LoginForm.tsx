@@ -26,17 +26,30 @@ export function LoginForm({ redirectTo = '/dashboard' }: { redirectTo?: string }
     setLoading(true);
 
     try {
+      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      const callbackUrl = `${origin}/auth/callback?redirectTo=${encodeURIComponent(redirectTo)}`;
+
       if (isSignUp) {
-        const { error } = await supabase.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
           email,
           password,
           options: {
-            emailRedirectTo: `${window.location.origin}/auth/callback?redirectTo=${redirectTo}`,
+            emailRedirectTo: callbackUrl,
           },
         });
+
         if (error) throw error;
-        showToast('Registro exitoso. Si se requiere confirmación, revisa tu correo o inicia sesión.', 'success');
-        setIsSignUp(false);
+
+        if (data.session) {
+          showToast('¡Cuenta creada y sesión iniciada correctamente!', 'success');
+          window.location.href = redirectTo;
+        } else {
+          showToast(
+            '¡Registro exitoso! Si tu proyecto requiere confirmación por correo, revisa tu bandeja de entrada o intenta iniciar sesión.',
+            'success'
+          );
+          setIsSignUp(false);
+        }
       } else {
         const { error } = await supabase.auth.signInWithPassword({
           email,
@@ -47,6 +60,7 @@ export function LoginForm({ redirectTo = '/dashboard' }: { redirectTo?: string }
         window.location.href = redirectTo;
       }
     } catch (error: any) {
+      console.error('Error Auth:', error);
       showToast(error.message || 'Error de autenticación.', 'error');
     } finally {
       setLoading(false);
@@ -60,14 +74,17 @@ export function LoginForm({ redirectTo = '/dashboard' }: { redirectTo?: string }
     }
     setLoading(true);
     try {
+      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      const callbackUrl = `${origin}/auth/callback?redirectTo=${encodeURIComponent(redirectTo)}`;
+
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback?redirectTo=${redirectTo}`,
+          emailRedirectTo: callbackUrl,
         },
       });
       if (error) throw error;
-      showToast('¡Enlace mágico enviado a tu correo electronico!', 'success');
+      showToast('¡Enlace mágico enviado a tu correo electrónico!', 'success');
     } catch (error: any) {
       showToast(error.message || 'Error al enviar el enlace mágico.', 'error');
     } finally {

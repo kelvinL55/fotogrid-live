@@ -1,12 +1,17 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 
+export function getSupabaseUrl(): string {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+  return url.trim().replace(/\/+$/, '');
+}
+
 export async function createClient() {
   const cookieStore = await cookies();
 
   return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    getSupabaseUrl(),
+    (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '').trim(),
     {
       cookies: {
         getAll() {

@@ -1,14 +1,19 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
+export function getSupabaseUrl(): string {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+  return url.trim().replace(/\/+$/, '');
+}
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
   });
 
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    getSupabaseUrl(),
+    (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '').trim(),
     {
       cookies: {
         getAll() {
@@ -34,6 +39,7 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const isAuthPage = request.nextUrl.pathname.startsWith('/login');
+  const isAuthCallback = request.nextUrl.pathname.startsWith('/auth');
   const isPublicAsset =
     request.nextUrl.pathname.startsWith('/_next') ||
     request.nextUrl.pathname.startsWith('/api/cron') ||
@@ -42,7 +48,7 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname.endsWith('.png') ||
     request.nextUrl.pathname.endsWith('.ico');
 
-  if (!user && !isAuthPage && !isPublicAsset) {
+  if (!user && !isAuthPage && !isAuthCallback && !isPublicAsset) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     url.searchParams.set('redirectTo', request.nextUrl.pathname);
