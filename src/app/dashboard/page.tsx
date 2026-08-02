@@ -19,6 +19,7 @@ import {
   RefreshCw,
   Trash2,
   AlertTriangle,
+  Zap,
 } from 'lucide-react';
 
 export default function DashboardPage() {
@@ -31,34 +32,50 @@ export default function DashboardPage() {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [selectedQRProject, setSelectedQRProject] = useState<Project | null>(null);
   const [cleaningExpired, setCleaningExpired] = useState(false);
+  const [isDemo, setIsDemo] = useState(false);
 
   const fetchProjects = useCallback(async () => {
     setLoading(true);
+    let supabaseProjects: Project[] = [];
+
+    const isDemoCookie = typeof document !== 'undefined' && document.cookie.includes('demo_mode=true');
+    setIsDemo(isDemoCookie);
+
     try {
       const { data, error } = await supabase
         .from('projects')
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      setProjects(data || []);
-    } catch (err: any) {
-      showToast(err.message || 'Error al cargar los proyectos.', 'error');
-    } finally {
-      setLoading(false);
+      if (!error && data) {
+        supabaseProjects = data;
+      }
+    } catch (_err) {
+      // Ignorar error de red si estamos en demo mode
     }
-  }, [supabase, showToast]);
+
+    // Unir con proyectos locales de demo si existen
+    const localDemoProjects: Project[] = JSON.parse(
+      (typeof window !== 'undefined' && localStorage.getItem('demo_projects')) || '[]'
+    );
+
+    const allProjects = [...supabaseProjects, ...localDemoProjects];
+    setProjects(allProjects);
+    setLoading(false);
+  }, [supabase]);
 
   useEffect(() => {
     fetchProjects();
   }, [fetchProjects]);
 
   const handleSignOut = async () => {
+    if (typeof document !== 'undefined') {
+      document.cookie = 'demo_mode=; path=/; max-age=0';
+    }
     await supabase.auth.signOut();
     window.location.href = '/login';
   };
 
-  // Comprobación y limpieza ligera de proyectos vencidos (Requisito 18)
   const handleCleanupExpiredProjects = async () => {
     setCleaningExpired(true);
     try {
@@ -81,6 +98,14 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+      {/* Indicador superior de Modo Demostración Temporal */}
+      {isDemo && (
+        <div className="w-full bg-amber-500 text-slate-950 font-bold text-xs py-1.5 px-4 text-center flex items-center justify-center gap-2">
+          <Zap className="w-4 h-4 fill-current text-slate-950" />
+          <span>ESTÁS EN MODO DEMOSTRACIÓN TEMPORAL (ACCESO DIRECTO)</span>
+        </div>
+      )}
+
       {/* Header Superior */}
       <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur-xl sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -106,7 +131,7 @@ export default function DashboardPage() {
               variant="ghost"
               onClick={handleSignOut}
               className="text-slate-400 hover:text-white p-2"
-              title="Cerrar Sesión"
+              title="Salir del Modo Demo / Cerrar Sesión"
               aria-label="Cerrar sesión"
             >
               <LogOut className="w-5 h-5" />
@@ -117,7 +142,6 @@ export default function DashboardPage() {
 
       {/* Contenido Principal */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Banner de Proyectos Vencidos Pendientes de Limpieza */}
         {expiredCount > 0 && (
           <div className="mb-6 p-4 bg-amber-950/40 border border-amber-800/80 rounded-2xl flex items-center justify-between gap-4 text-amber-200">
             <div className="flex items-center gap-3">
@@ -138,7 +162,6 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Filtros de Pestañas (Activos / Archivados) */}
         <div className="flex items-center justify-between mb-8 border-b border-slate-800/80 pb-4">
           <div className="flex items-center gap-2">
             <button
@@ -179,7 +202,6 @@ export default function DashboardPage() {
           </Button>
         </div>
 
-        {/* Listado de Tarjetas de Proyectos */}
         {loading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {Array.from({ length: 6 }).map((_, i) => (
@@ -223,14 +245,12 @@ export default function DashboardPage() {
         )}
       </main>
 
-      {/* Modal de Creación de Proyecto */}
       <CreateProjectModal
         isOpen={createModalOpen}
         onClose={() => setCreateModalOpen(false)}
         onSuccess={fetchProjects}
       />
 
-      {/* Modal de Código QR */}
       <QRCodeModal
         isOpen={Boolean(selectedQRProject)}
         onClose={() => setSelectedQRProject(null)}

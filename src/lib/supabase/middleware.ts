@@ -11,6 +11,9 @@ export async function updateSession(request: NextRequest) {
     request,
   });
 
+  // Verificar si está activo el Modo Demostración Temporal vía Cookie
+  const isDemoMode = request.cookies.get('demo_mode')?.value === 'true';
+
   const supabase = createServerClient(
     getSupabaseUrl(),
     (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '').trim(),
@@ -48,14 +51,15 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname.endsWith('.png') ||
     request.nextUrl.pathname.endsWith('.ico');
 
-  if (!user && !isAuthPage && !isAuthCallback && !isPublicAsset) {
+  // Permitir paso si existe un usuario autenticado O si está en Modo Demo
+  if (!user && !isDemoMode && !isAuthPage && !isAuthCallback && !isPublicAsset) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     url.searchParams.set('redirectTo', request.nextUrl.pathname);
     return NextResponse.redirect(url);
   }
 
-  if (user && isAuthPage) {
+  if ((user || isDemoMode) && isAuthPage) {
     const url = request.nextUrl.clone();
     url.pathname = '/dashboard';
     return NextResponse.redirect(url);

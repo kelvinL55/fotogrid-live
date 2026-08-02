@@ -7,6 +7,7 @@ import { useToast } from '@/components/ui/Toast';
 import { createClient } from '@/lib/supabase/client';
 import { APP_CONFIG } from '@/lib/config';
 import { FolderPlus, Clock } from 'lucide-react';
+import { Project } from '@/lib/types';
 
 interface CreateProjectModalProps {
   isOpen: boolean;
@@ -32,16 +33,8 @@ export function CreateProjectModal({ isOpen, onClose, onSuccess }: CreateProject
     setLoading(true);
 
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) throw new Error('Sesión no encontrada. Inicia sesión nuevamente.');
-
-      // Generar código corto de vinculación único de 6 caracteres (ej: "FG-8X9K")
       const randomCode = 'FG-' + Math.random().toString(36).substring(2, 6).toUpperCase();
 
-      // Calcular fecha de expiración
       let expiresAt: string | null = null;
       const now = new Date();
       if (expiration === '1d') {
@@ -55,17 +48,30 @@ export function CreateProjectModal({ isOpen, onClose, onSuccess }: CreateProject
         expiresAt = now.toISOString();
       }
 
-      const { error } = await supabase.from('projects').insert({
-        owner_id: user.id,
+      const { data: userData } = await supabase.auth.getUser();
+      const ownerId = userData.user?.id || 'demo-user-123';
+
+      const newProject: Partial<Project> = {
+        id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 11),
+        owner_id: ownerId,
         name: name.trim(),
         pairing_code: randomCode,
         next_position: 1,
         preferred_density: APP_CONFIG.defaultDensity,
         status: 'active',
         expires_at: expiresAt,
-      });
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
 
-      if (error) throw error;
+      // Intentar insertar en Supabase
+      const { error } = await supabase.from('projects').insert(newProject);
+
+      if (error) {
+        console.warn('Supabase no disponible, guardando proyecto en localStorage (Modo Demo):', error.message);
+        const existingDemoProjects = JSON.parse(localStorage.getItem('demo_projects') || '[]');
+        localStorage.setItem('demo_projects', JSON.stringify([newProject, ...existingDemoProjects]));
+      }
 
       showToast('¡Proyecto creado con éxito!', 'success');
       setName('');

@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/Toast';
-import { Mail, Lock, Sparkles, ArrowRight, Camera } from 'lucide-react';
+import { Mail, Lock, Sparkles, ArrowRight, Camera, Zap } from 'lucide-react';
 import { APP_CONFIG } from '@/lib/config';
 
 export function LoginForm({ redirectTo = '/dashboard' }: { redirectTo?: string }) {
@@ -15,6 +15,13 @@ export function LoginForm({ redirectTo = '/dashboard' }: { redirectTo?: string }
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Función de Bypass Temporal (Modo Demostración)
+  const handleDemoBypass = () => {
+    document.cookie = 'demo_mode=true; path=/; max-age=86400';
+    showToast('¡Acceso directo activado en Modo Demostración!', 'success');
+    window.location.href = redirectTo;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,10 +70,14 @@ export function LoginForm({ redirectTo = '/dashboard' }: { redirectTo?: string }
       }
     } catch (error: any) {
       console.error('Error Auth:', error);
-      
-      if (error.name === 'AuthRetryableFetchError' || error.message?.includes('Failed to fetch') || error.message?.includes('fetch failed')) {
+
+      if (
+        error.name === 'AuthRetryableFetchError' ||
+        error.message?.includes('Failed to fetch') ||
+        error.message?.includes('fetch failed')
+      ) {
         showToast(
-          'Error de conexión: No se pudo conectar con Supabase. Asegúrate de configurar tus claves reales (NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_ANON_KEY) en tu .env.local o en Vercel.',
+          'Error de conexión con Supabase. Puedes usar el botón "Acceso Directo de Prueba" más abajo mientras configuras Supabase.',
           'error'
         );
       } else {
@@ -97,7 +108,7 @@ export function LoginForm({ redirectTo = '/dashboard' }: { redirectTo?: string }
       showToast('¡Enlace mágico enviado a tu correo electrónico!', 'success');
     } catch (error: any) {
       if (error.name === 'AuthRetryableFetchError' || error.message?.includes('Failed to fetch')) {
-        showToast('Error de conexión: No se pudo conectar con Supabase.', 'error');
+        showToast('Error de conexión con Supabase.', 'error');
       } else {
         showToast(error.message || 'Error al enviar el enlace mágico.', 'error');
       }
@@ -108,6 +119,22 @@ export function LoginForm({ redirectTo = '/dashboard' }: { redirectTo?: string }
 
   return (
     <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-2xl backdrop-blur-xl">
+      {/* BOTÓN TEMPORAL DE ACCESO DIRECTO DESTACADO */}
+      <div className="mb-6 p-4 bg-amber-950/60 border border-amber-500/50 rounded-2xl text-center">
+        <span className="text-xs font-bold text-amber-300 uppercase tracking-wider block mb-2">
+          ⚡ MODO DEMOSTRACIÓN TEMPORAL
+        </span>
+        <Button
+          type="button"
+          variant="primary"
+          onClick={handleDemoBypass}
+          className="w-full py-3 text-sm font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-lg shadow-amber-500/20 border border-amber-400"
+          leftIcon={<Zap className="w-4 h-4 text-slate-950 fill-current" />}
+        >
+          Acceso Directo de Prueba (Sin Login)
+        </Button>
+      </div>
+
       <div className="flex flex-col items-center text-center mb-8">
         <div className="w-14 h-14 bg-sky-500/10 border border-sky-500/30 rounded-2xl flex items-center justify-center mb-4 text-sky-400 shadow-inner">
           <Camera className="w-7 h-7" />

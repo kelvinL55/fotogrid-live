@@ -38,25 +38,34 @@ export default function ProjectViewerPage({
 
   useEffect(() => {
     async function loadProject() {
+      let foundProject: Project | null = null;
+
       try {
-        const { data, error } = await supabase
+        const { data } = await supabase
           .from('projects')
           .select('*')
           .eq('id', projectId)
           .single();
 
-        if (error || !data) {
-          showToast('Proyecto no encontrado o sin permisos.', 'error');
-          router.push('/dashboard');
-          return;
-        }
-
-        setProject(data);
+        if (data) foundProject = data;
       } catch (_err) {
-        showToast('Error al obtener información del proyecto.', 'error');
-      } finally {
-        setLoading(false);
+        // Ignorar error si no hay conexión
       }
+
+      // Si no se encontró en Supabase, buscar en demo_projects en localStorage
+      if (!foundProject && typeof window !== 'undefined') {
+        const demoProjects: Project[] = JSON.parse(localStorage.getItem('demo_projects') || '[]');
+        foundProject = demoProjects.find((p) => p.id === projectId) || null;
+      }
+
+      if (!foundProject) {
+        showToast('Proyecto no encontrado.', 'error');
+        router.push('/dashboard');
+        return;
+      }
+
+      setProject(foundProject);
+      setLoading(false);
     }
 
     loadProject();
