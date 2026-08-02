@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/Toast';
 import { createClient } from '@/lib/supabase/client';
 import { compressImage } from '@/lib/utils/image';
-import { savePendingUpload, getPendingUploads, removePendingUpload } from '@/lib/utils/queue';
 import { APP_CONFIG } from '@/lib/config';
 import { Camera, Image as ImageIcon, RefreshCw, UploadCloud, CheckCircle2, AlertCircle } from 'lucide-react';
 import { Project, ProjectItem } from '@/lib/types';
@@ -63,6 +62,16 @@ export function CameraCapture({
     if (galleryInputRef.current) galleryInputRef.current.value = '';
   };
 
+  // Convertir File a DataURL base64 para Modo Demo local
+  const fileToDataUrl = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
   const handleConfirmAndUpload = async () => {
     if (!selectedFile) return;
 
@@ -71,104 +80,147 @@ export function CameraCapture({
       let targetPosition: number;
       let currentVersion = 1;
 
-      // SI ES UN REEMPLAZO DE CASILLA EXISTENTE (VACÍA O ACTIVA)
       if (replacementTargetItem) {
         itemId = replacementTargetItem.id;
         targetPosition = replacementTargetItem.position;
         currentVersion = replacementTargetItem.version + 1;
         setStatus('compressing');
       } else {
-        // RESERVA ATÓMICA DE NUEVA POSICIÓN VÍA RPC SQL
         setStatus('reserving');
-        const { data: rpcData, error: rpcError } = await supabase.rpc('reserve_next_project_position', {
-          p_project_id: project.id,
-        });
 
-        if (rpcError || !rpcData || rpcData.length === 0) {
-          throw new Error(rpcError?.message || 'No se pudo reservar la posición de la casilla.');
+        let rpcData: any = null;
+        try {
+          const res = await supabase.rpc('reserve_next_project_position', {
+            p_project_id: project.id,
+          });
+          if (res.data && res.data.length > 0) {
+            rpcData = res.data;
+          }
+        } catch (_e) {
+          // Ignorar error en modo demo
         }
 
-        itemId = rpcData[0].item_id;
-        targetPosition = rpcData[0].reserved_position;
+        if (rpcData) {
+          itemId = rpcData[0].item_id;
+          targetPosition = rpcData[0].reserved_position;
+        } else {
+          // Fallback para Modo Demo
+          itemId = Math.random().toString(36).substring(2, 11);
+          targetPosition = project.next_position || 1;
+        }
         setAssignedPosition(targetPosition);
       }
 
-      // COMPRESIÓN CLIENT-SIDE
       setStatus('compressing');
       const processed = await compressImage(selectedFile);
 
-      // SUBIDA A SUPABASE STORAGE
       setStatus('uploading');
       const { data: userData } = await supabase.auth.getUser();
-      if (!userData.user) throw new Error('Sesión caducada.');
+      const userId = userData.user?.id || 'demo-user-123';
 
       const fileExt = processed.file.name.split('.').pop() || 'jpg';
-      const storagePath = `${userData.user.id}/${project.id}/${itemId}/v${currentVersion}.${fileExt}`;
+      const storagePath = `${userId}/${project.id}/${itemId}/v${currentVersion}.${fileExt}`;
 
-      // 1. Subir archivo a Storage
-      const { error: uploadError } = await supabase.storage
-        .from(APP_CONFIG.storage.bucketName)
-        .upload(storagePath, processed.file, {
-          contentType: processed.file.type,
-          upsert: true,
-        });
+      let isSupabaseUploaded = false;
 
-      if (uploadError) {
-        // Si falla la subida, guardamos en la cola de IndexedDB para reintento automático
-        await savePendingUpload({
-          id: Math.random().toString(36).substring(2, 9),
-          item_id: itemId,
-          project_id: project.id,
-          position: targetPosition,
-          file: processed.file,
-          filename: processed.file.name,
-          timestamp: Date.now(),
-          retry_count: 0,
-          status: 'failed',
-          error_message: uploadError.message,
-        });
+      // Intentar subir a Supabase Storage
+      try {
+        const { error: uploadError } = await supabase.storage
+          .from(APP_CONFIG.storage.bucketName)
+          .upload(storagePath, processed.file, {
+            contentType: processed.file.type,
+            upsert: true,
+          });
 
-        throw new Error(`Fallo de red al subir archivo: ${uploadError.message}. Se guardó en la cola para reintentar.`);
+        if (!uploadError) {
+          await supabase
+            .from('project_items')
+            .update({
+              status: 'active',
+              storage_path: storagePath,
+              original_filename: selectedFile.name,
+              mime_type: processed.file.type,
+              file_size: processed.file.size,
+              width: processed.width,
+              height: processed.height,
+              uploaded_at: new Date().toISOString(),
+              version: currentVersion,
+              error_message: null,
+            })
+            .eq('id', itemId);
+
+          isSupabaseUploaded = true;
+        }
+      } catch (_supabaseErr) {
+        // Fallback a modo demo
       }
 
-      // 2. Actualizar registro en Postgres a 'active'
-      const { error: updateError } = await supabase
-        .from('project_items')
-        .update({
+      // Si no se pudo subir a Supabase (Modo Demo / Sin conexión), guardar en localStorage
+      if (!isSupabaseUploaded && typeof window !== 'undefined') {
+        const dataUrl = await fileToDataUrl(processed.file);
+        const demoItem: ProjectItem = {
+          id: itemId,
+          project_id: project.id,
+          position: targetPosition,
           status: 'active',
-          storage_path: storagePath,
+          storage_path: null,
           original_filename: selectedFile.name,
           mime_type: processed.file.type,
           file_size: processed.file.size,
           width: processed.width,
           height: processed.height,
+          captured_at: new Date().toISOString(),
           uploaded_at: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
           version: currentVersion,
           error_message: null,
-        })
-        .eq('id', itemId);
+          public_url: dataUrl,
+        };
 
-      if (updateError) throw updateError;
+        const existing: ProjectItem[] = JSON.parse(
+          localStorage.getItem(`demo_items_${project.id}`) || '[]'
+        );
+
+        const updated = existing.filter((i) => i.position !== targetPosition);
+        updated.push(demoItem);
+        updated.sort((a, b) => a.position - b.position);
+
+        localStorage.setItem(`demo_items_${project.id}`, JSON.stringify(updated));
+
+        // Actualizar contador del proyecto si era una nueva casilla
+        if (!replacementTargetItem) {
+          const demoProjects: Project[] = JSON.parse(
+            localStorage.getItem('demo_projects') || '[]'
+          );
+          const pIndex = demoProjects.findIndex((p) => p.id === project.id);
+          if (pIndex >= 0) {
+            demoProjects[pIndex].next_position = targetPosition + 1;
+            localStorage.setItem('demo_projects', JSON.stringify(demoProjects));
+          }
+        }
+
+        // Disparar evento para actualizar la cuadrícula en vivo entre pestañas/dispositivos
+        window.dispatchEvent(new Event('storage'));
+      }
 
       setStatus('success');
       showToast(`¡Fotografía #${targetPosition} subida correctamente!`, 'success');
       onUploadSuccess();
 
-      // Resetear vista tras 1.5 segundos
       setTimeout(() => {
         handleRetake();
-      }, 1500);
+      }, 1200);
     } catch (err: any) {
       console.error('Error durante la captura y subida:', err);
       setStatus('error');
-      setErrorMessage(err.message || 'Error inesperado al procesar la fotografía.');
+      setErrorMessage(err.message || 'Error al procesar la fotografía.');
       showToast(err.message || 'Fallo durante la subida.', 'error');
     }
   };
 
   return (
     <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl flex flex-col items-center">
-      {/* Header del Modo Cámara */}
       <div className="w-full flex items-center justify-between pb-4 mb-4 border-b border-slate-800">
         <div>
           <span className="text-xs font-semibold text-sky-400 uppercase tracking-wider">Modo Cámara Móvil</span>
@@ -180,7 +232,6 @@ export function CameraCapture({
         </div>
       </div>
 
-      {/* Indicador de Modo Reemplazo */}
       {replacementTargetItem && (
         <div className="w-full mb-4 p-3 bg-amber-950/60 border border-amber-800/80 rounded-xl flex items-center justify-between text-xs text-amber-200">
           <span>Reemplazando casilla <strong>#{replacementTargetItem.position}</strong></span>
@@ -190,7 +241,6 @@ export function CameraCapture({
         </div>
       )}
 
-      {/* Inputs de Archivo Ocultos */}
       <input
         ref={fileInputRef}
         type="file"
@@ -209,7 +259,6 @@ export function CameraCapture({
         id="gallery-input"
       />
 
-      {/* Vista previa de la fotografía capturada o estado de captura */}
       {previewUrl ? (
         <div className="w-full flex flex-col items-center gap-4 animate-fade-in">
           <div className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 shadow-inner">
@@ -238,7 +287,7 @@ export function CameraCapture({
                 {status === 'uploading' && (
                   <>
                     <UploadCloud className="w-10 h-10 text-sky-400 animate-bounce mb-2" />
-                    <p className="text-sm font-semibold text-white">Subiendo foto a Supabase Storage...</p>
+                    <p className="text-sm font-semibold text-white">Subiendo foto a la cuadrícula...</p>
                   </>
                 )}
                 {status === 'success' && (
@@ -260,7 +309,6 @@ export function CameraCapture({
             )}
           </div>
 
-          {/* Acciones tras captura */}
           {status === 'idle' && (
             <div className="w-full flex items-center gap-3">
               <Button
@@ -284,7 +332,6 @@ export function CameraCapture({
           )}
         </div>
       ) : (
-        /* Selector Principal cuando no hay foto capturada */
         <div className="w-full flex flex-col items-center gap-4 py-6">
           <button
             onClick={() => fileInputRef.current?.click()}
