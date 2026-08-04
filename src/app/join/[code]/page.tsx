@@ -26,10 +26,5 @@ export default async function JoinProjectPage({
   }
 
   const targetPath = `/project/${project.id}/camera`;
-
-  if (!user) {
-    redirect(`/login?redirectTo=${encodeURIComponent(targetPath)}`);
-  } else {
-    redirect(targetPath);
-  }
+  redirect(targetPath);
 }
