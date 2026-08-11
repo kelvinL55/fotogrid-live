@@ -32,23 +32,37 @@ export default function MobileCameraPage({
 
   useEffect(() => {
     async function loadProjectData() {
+      let foundProject: Project | null = null;
+
       try {
-        const { data, error } = await supabase
+        const { data } = await supabase
           .from('projects')
           .select('*')
           .eq('id', projectId)
           .single();
 
-        if (error || !data) {
-          showToast('Proyecto no encontrado.', 'error');
-          router.push('/dashboard');
-          return;
-        }
+        if (data) foundProject = data;
+      } catch (_err) {
+        // Ignorar fallo de red
+      }
 
-        setProject(data);
+      // Si no está en Supabase, buscar en localStorage
+      if (!foundProject && typeof window !== 'undefined') {
+        const demoProjects: Project[] = JSON.parse(localStorage.getItem('demo_projects') || '[]');
+        foundProject = demoProjects.find((p) => p.id === projectId) || null;
+      }
 
-        // Si existe replaceItemId, cargar sus datos
-        if (replaceItemId) {
+      if (!foundProject) {
+        showToast('Proyecto no encontrado.', 'error');
+        router.push('/dashboard');
+        return;
+      }
+
+      setProject(foundProject);
+
+      // Si existe replaceItemId, cargar sus datos
+      if (replaceItemId) {
+        try {
           const { data: itemData } = await supabase
             .from('project_items')
             .select('*')
@@ -56,12 +70,12 @@ export default function MobileCameraPage({
             .single();
 
           if (itemData) setReplacementItem(itemData);
+        } catch (_e) {
+          // Ignorar
         }
-      } catch (err: any) {
-        showToast('Error al cargar la cámara.', 'error');
-      } finally {
-        setLoading(false);
       }
+
+      setLoading(false);
     }
 
     loadProjectData();

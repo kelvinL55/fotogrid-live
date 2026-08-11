@@ -12,14 +12,12 @@ import { useToast } from '@/components/ui/Toast';
 import { APP_CONFIG } from '@/lib/config';
 import {
   FolderPlus,
-  LogOut,
   Camera,
   Layers,
   Archive,
   RefreshCw,
   Trash2,
   AlertTriangle,
-  Zap,
 } from 'lucide-react';
 
 export default function DashboardPage() {
@@ -32,14 +30,10 @@ export default function DashboardPage() {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [selectedQRProject, setSelectedQRProject] = useState<Project | null>(null);
   const [cleaningExpired, setCleaningExpired] = useState(false);
-  const [isDemo, setIsDemo] = useState(false);
 
   const fetchProjects = useCallback(async () => {
     setLoading(true);
     let supabaseProjects: Project[] = [];
-
-    const isDemoCookie = typeof document !== 'undefined' && document.cookie.includes('demo_mode=true');
-    setIsDemo(isDemoCookie);
 
     try {
       const { data, error } = await supabase
@@ -51,15 +45,35 @@ export default function DashboardPage() {
         supabaseProjects = data;
       }
     } catch (_err) {
-      // Ignorar error de red si estamos en demo mode
+      // Ignorar error de red
     }
 
-    // Unir con proyectos locales de demo si existen
-    const localDemoProjects: Project[] = JSON.parse(
+    // Unir con proyectos locales
+    let localDemoProjects: Project[] = JSON.parse(
       (typeof window !== 'undefined' && localStorage.getItem('demo_projects')) || '[]'
     );
 
-    const allProjects = [...supabaseProjects, ...localDemoProjects];
+    let allProjects = [...supabaseProjects, ...localDemoProjects];
+
+    // Si no hay ningún proyecto creado aún, crear uno automáticamente por defecto para acceso instantáneo
+    if (allProjects.length === 0 && typeof window !== 'undefined') {
+      const defaultProject: Project = {
+        id: 'session-live-default',
+        name: 'Mi Sesión FotoGrid en Vivo',
+        pairing_code: 'FG-' + Math.floor(1000 + Math.random() * 9000),
+        status: 'active',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        expires_at: null,
+        archived_at: null,
+        owner_id: 'public-user',
+        preferred_density: 12,
+        next_position: 1,
+      };
+      localStorage.setItem('demo_projects', JSON.stringify([defaultProject]));
+      allProjects = [defaultProject];
+    }
+
     setProjects(allProjects);
     setLoading(false);
   }, [supabase]);
@@ -67,14 +81,6 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchProjects();
   }, [fetchProjects]);
-
-  const handleSignOut = async () => {
-    if (typeof document !== 'undefined') {
-      document.cookie = 'demo_mode=; path=/; max-age=0';
-    }
-    await supabase.auth.signOut();
-    window.location.href = '/login';
-  };
 
   const handleCleanupExpiredProjects = async () => {
     setCleaningExpired(true);
@@ -98,14 +104,6 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-      {/* Indicador superior de Modo Demostración Temporal */}
-      {isDemo && (
-        <div className="w-full bg-amber-500 text-slate-950 font-bold text-xs py-1.5 px-4 text-center flex items-center justify-center gap-2">
-          <Zap className="w-4 h-4 fill-current text-slate-950" />
-          <span>ESTÁS EN MODO DEMOSTRACIÓN TEMPORAL (ACCESO DIRECTO)</span>
-        </div>
-      )}
-
       {/* Header Superior */}
       <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur-xl sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -125,16 +123,6 @@ export default function DashboardPage() {
               leftIcon={<FolderPlus className="w-4 h-4" />}
             >
               Nuevo Proyecto
-            </Button>
-
-            <Button
-              variant="ghost"
-              onClick={handleSignOut}
-              className="text-slate-400 hover:text-white p-2"
-              title="Salir del Modo Demo / Cerrar Sesión"
-              aria-label="Cerrar sesión"
-            >
-              <LogOut className="w-5 h-5" />
             </Button>
           </div>
         </div>

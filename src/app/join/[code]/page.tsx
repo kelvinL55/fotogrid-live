@@ -10,9 +10,6 @@ export default async function JoinProjectPage({
   const pairingCode = resolvedParams.code.toUpperCase();
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   // Buscar el proyecto correspondiente al código de vinculación
   const { data: project } = await supabase
@@ -21,10 +18,10 @@ export default async function JoinProjectPage({
     .eq('pairing_code', pairingCode)
     .single();
 
-  if (!project) {
-    redirect('/dashboard');
+  if (project) {
+    redirect(`/project/${project.id}/camera`);
   }
 
-  const targetPath = `/project/${project.id}/camera`;
-  redirect(targetPath);
+  redirect('/dashboard');
 }
+
