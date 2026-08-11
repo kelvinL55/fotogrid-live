@@ -29,6 +29,7 @@ interface GridItemProps {
   onReplaceItem: (item: ProjectItem) => void;
   onRefresh: () => void;
   isSelected?: boolean;
+  isLatest?: boolean;
   onToggleSelect?: (item: ProjectItem) => void;
   isMultiSelectMode?: boolean;
 }
@@ -40,6 +41,7 @@ export function GridItem({
   onReplaceItem,
   onRefresh,
   isSelected = false,
+  isLatest = false,
   onToggleSelect,
   isMultiSelectMode = false,
 }: GridItemProps) {
@@ -174,6 +176,8 @@ export function GridItem({
       className={`group relative aspect-square bg-slate-900 border rounded-2xl overflow-hidden shadow-md transition-all duration-200 select-none cursor-pointer flex flex-col justify-between p-2.5 ${
         isSelected
           ? 'border-sky-500 ring-2 ring-sky-500/50 bg-sky-950/20'
+          : isLatest
+          ? 'border-emerald-400 ring-4 ring-emerald-400/40 shadow-emerald-500/30 animate-pulse bg-emerald-950/20'
           : isEmpty
           ? 'border-dashed border-slate-800 hover:border-slate-600 bg-slate-950/40'
           : 'border-slate-800 hover:border-slate-700 hover:shadow-xl'

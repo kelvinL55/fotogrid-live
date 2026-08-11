@@ -32,7 +32,7 @@ export function PhotoGrid({ project, onOpenMobileCamera, onReplaceItemTarget }: 
   const supabase = createClient();
   const { showToast } = useToast();
 
-  const { items, loading, connectionState, refreshItems } = useProjectRealtime(project.id);
+  const { items, loading, connectionState, latestPhotoId, refreshItems } = useProjectRealtime(project.id);
 
   const [density, setDensity] = useState<GridDensity>('auto');
   const [selectedLightboxItem, setSelectedLightboxItem] = useState<ProjectItem | null>(null);
@@ -84,7 +84,7 @@ export function PhotoGrid({ project, onOpenMobileCamera, onReplaceItemTarget }: 
       refreshItems();
     } catch (err: any) {
       showToast(err.message || 'Error al compactar cuadrícula.', 'error');
-    } fontally: {
+    } finally {
       setCompacting(false);
     }
   };
@@ -134,8 +134,8 @@ export function PhotoGrid({ project, onOpenMobileCamera, onReplaceItemTarget }: 
         {/* Indicador Realtime de Conexión */}
         <div className="flex items-center gap-2">
           {connectionState === 'connected' && (
-            <div className="flex items-center gap-2 px-3 py-1 bg-emerald-950/80 border border-emerald-800/80 rounded-full text-xs text-emerald-300 font-medium">
-              <Wifi className="w-3.5 h-3.5 text-emerald-400" />
+            <div className="flex items-center gap-2 px-3 py-1 bg-emerald-950/80 border border-emerald-800/80 rounded-full text-xs text-emerald-300 font-medium shadow-sm">
+              <Wifi className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
               <span>Realtime Activo</span>
             </div>
           )}
@@ -154,12 +154,21 @@ export function PhotoGrid({ project, onOpenMobileCamera, onReplaceItemTarget }: 
         </div>
       </div>
 
-      {/* Nota sutil sobre arrastre de imágenes */}
-      <div className="flex items-center gap-2 px-4 py-2 bg-sky-950/30 border border-sky-900/40 rounded-xl text-xs text-sky-300">
-        <Info className="w-4 h-4 text-sky-400 shrink-0" />
-        <span>
-          <strong>Tip de uso:</strong> Puedes arrastrar las miniaturas hacia otra app (como ChatGPT). Si tu navegador no acepta el arrastre directo, usa el botón <strong>Copiar imagen</strong> o <strong>Descargar</strong>.
-        </span>
+      {/* Nota sutil sobre arrastre de imágenes y cámara remota */}
+      <div className="flex items-center justify-between gap-2 px-4 py-2.5 bg-sky-950/30 border border-sky-900/40 rounded-xl text-xs text-sky-300">
+        <div className="flex items-center gap-2">
+          <Info className="w-4 h-4 text-sky-400 shrink-0" />
+          <span>
+            <strong>Visor en Tiempo Real:</strong> Las imágenes tomadas con tu teléfono móvil aparecerán automáticamente aquí. Puedes hacer clic en cualquiera para seleccionarla o verla en detalle.
+          </span>
+        </div>
+
+        <button
+          onClick={onOpenMobileCamera}
+          className="text-sky-400 hover:text-sky-200 font-semibold underline shrink-0 ml-2"
+        >
+          Código QR Móvil
+        </button>
       </div>
 
       {/* Grid Contenedor Principal */}
@@ -173,14 +182,14 @@ export function PhotoGrid({ project, onOpenMobileCamera, onReplaceItemTarget }: 
         /* ESTADO VACÍO CUANDO EL PROYECTO TIENE 0 FOTOGRAFÍAS */
         <div className="flex flex-col items-center justify-center p-12 bg-slate-900/50 border border-dashed border-slate-800 rounded-3xl text-center my-8">
           <div className="w-16 h-16 rounded-full bg-slate-800/60 flex items-center justify-center mb-4 text-slate-500">
-            <GridIcon className="w-8 h-8" />
+            <GridIcon className="w-8 h-8 text-sky-400" />
           </div>
           <h3 className="text-lg font-bold text-white mb-1">Aún no hay fotografías en este proyecto</h3>
           <p className="text-sm text-slate-400 max-w-md mb-6">
-            Abre este proyecto desde tu teléfono móvil o toma tu primera captura para ver las imágenes aparecer aquí en tiempo real.
+            Abre el código QR desde la cámara de tu teléfono para empezar a capturar y ver las fotos aparecer en este visor en tiempo real.
           </p>
           <Button variant="primary" onClick={onOpenMobileCamera}>
-            Abrir Código QR Móvil
+            Conectar Teléfono Móvil
           </Button>
         </div>
       ) : (
@@ -194,6 +203,7 @@ export function PhotoGrid({ project, onOpenMobileCamera, onReplaceItemTarget }: 
               onReplaceItem={onReplaceItemTarget}
               onRefresh={refreshItems}
               isSelected={selectedItemIds.includes(item.id)}
+              isLatest={latestPhotoId === item.id}
               onToggleSelect={handleToggleSelect}
               isMultiSelectMode={isMultiSelectMode}
             />
@@ -223,3 +233,4 @@ export function PhotoGrid({ project, onOpenMobileCamera, onReplaceItemTarget }: 
     </div>
   );
 }
+

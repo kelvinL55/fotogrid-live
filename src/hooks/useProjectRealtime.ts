@@ -12,6 +12,7 @@ export function useProjectRealtime(projectId: string) {
   const [items, setItems] = useState<ProjectItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [connectionState, setConnectionState] = useState<RealtimeConnectionState>('connecting');
+  const [latestPhotoId, setLatestPhotoId] = useState<string | null>(null);
 
   const fetchItems = useCallback(async () => {
     let supabaseItems: ProjectItem[] = [];
@@ -94,7 +95,20 @@ export function useProjectRealtime(projectId: string) {
           table: 'project_items',
           filter: `project_id=eq.${projectId}`,
         },
-        async () => {
+        async (payload: any) => {
+          if (payload.new && payload.new.id) {
+            setLatestPhotoId(payload.new.id);
+          }
+          await fetchItems();
+        }
+      )
+      .on(
+        'broadcast',
+        { event: 'new_photo' },
+        async (payload: any) => {
+          if (payload.payload?.itemId) {
+            setLatestPhotoId(payload.payload.itemId);
+          }
           await fetchItems();
         }
       )
@@ -116,10 +130,23 @@ export function useProjectRealtime(projectId: string) {
     };
   }, [projectId, fetchItems, supabase]);
 
+  const broadcastNewPhoto = useCallback((itemId: string, position: number) => {
+    setLatestPhotoId(itemId);
+    const channel = supabase.channel(`project_items:${projectId}`);
+    channel.send({
+      type: 'broadcast',
+      event: 'new_photo',
+      payload: { itemId, position, timestamp: new Date().toISOString() },
+    });
+  }, [projectId, supabase]);
+
   return {
     items,
     loading,
     connectionState,
+    latestPhotoId,
     refreshItems: fetchItems,
+    broadcastNewPhoto,
   };
 }
+

@@ -6,7 +6,7 @@ import { useToast } from '@/components/ui/Toast';
 import { createClient } from '@/lib/supabase/client';
 import { compressImage } from '@/lib/utils/image';
 import { APP_CONFIG } from '@/lib/config';
-import { Camera, Image as ImageIcon, RefreshCw, UploadCloud, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Camera, Image as ImageIcon, RefreshCw, UploadCloud, CheckCircle2, AlertCircle, Zap, ShieldCheck } from 'lucide-react';
 import { Project, ProjectItem } from '@/lib/types';
 
 interface CameraCaptureProps {
@@ -35,22 +35,8 @@ export function CameraCapture({
   const [assignedPosition, setAssignedPosition] = useState<number | null>(
     replacementTargetItem ? replacementTargetItem.position : null
   );
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith('image/')) {
-      showToast('Por favor, selecciona únicamente un archivo de imagen.', 'error');
-      return;
-    }
-
-    setSelectedFile(file);
-    const url = URL.createObjectURL(file);
-    setPreviewUrl(url);
-    setStatus('idle');
-    setErrorMessage(null);
-  };
+  const [autoUpload, setAutoUpload] = useState<boolean>(true);
+  const [sentCount, setSentCount] = useState<number>(0);
 
   const handleRetake = () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -72,9 +58,7 @@ export function CameraCapture({
     });
   };
 
-  const handleConfirmAndUpload = async () => {
-    if (!selectedFile) return;
-
+  const processAndUploadFile = async (fileToUpload: File) => {
     try {
       let itemId: string;
       let targetPosition: number;
@@ -112,7 +96,7 @@ export function CameraCapture({
       }
 
       setStatus('compressing');
-      const processed = await compressImage(selectedFile);
+      const processed = await compressImage(fileToUpload);
 
       setStatus('uploading');
       const { data: userData } = await supabase.auth.getUser();
@@ -138,7 +122,7 @@ export function CameraCapture({
             .update({
               status: 'active',
               storage_path: storagePath,
-              original_filename: selectedFile.name,
+              original_filename: fileToUpload.name,
               mime_type: processed.file.type,
               file_size: processed.file.size,
               width: processed.width,
@@ -164,7 +148,7 @@ export function CameraCapture({
           position: targetPosition,
           status: 'active',
           storage_path: null,
-          original_filename: selectedFile.name,
+          original_filename: fileToUpload.name,
           mime_type: processed.file.type,
           file_size: processed.file.size,
           width: processed.width,
@@ -204,13 +188,27 @@ export function CameraCapture({
         window.dispatchEvent(new Event('storage'));
       }
 
+      // Enviar evento Broadcast en tiempo real a todas las pantallas web abiertas
+      try {
+        const channel = supabase.channel(`project_items:${project.id}`);
+        channel.send({
+          type: 'broadcast',
+          event: 'new_photo',
+          payload: { itemId, position: targetPosition, timestamp: new Date().toISOString() },
+        });
+      } catch (_bcErr) {
+        // Ignorar fallo de broadcast
+      }
+
       setStatus('success');
-      showToast(`¡Fotografía #${targetPosition} subida correctamente!`, 'success');
+      setSentCount((prev) => prev + 1);
+      showToast(`¡Foto #${targetPosition} enviada en vivo a la pantalla web!`, 'success');
       onUploadSuccess();
 
+      // Reinicio ultrarrápido para estar listo para la siguiente toma
       setTimeout(() => {
         handleRetake();
-      }, 1200);
+      }, 700);
     } catch (err: any) {
       console.error('Error durante la captura y subida:', err);
       setStatus('error');
@@ -219,16 +217,44 @@ export function CameraCapture({
     }
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      showToast('Por favor, selecciona únicamente un archivo de imagen.', 'error');
+      return;
+    }
+
+    setSelectedFile(file);
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+
+    if (autoUpload) {
+      processAndUploadFile(file);
+    } else {
+      setStatus('idle');
+      setErrorMessage(null);
+    }
+  };
+
+  const handleConfirmAndUpload = () => {
+    if (selectedFile) {
+      processAndUploadFile(selectedFile);
+    }
+  };
+
   return (
     <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl flex flex-col items-center">
+      {/* Cabecera de estado del teléfono */}
       <div className="w-full flex items-center justify-between pb-4 mb-4 border-b border-slate-800">
         <div>
-          <span className="text-xs font-semibold text-sky-400 uppercase tracking-wider">Modo Cámara Móvil</span>
-          <h2 className="text-lg font-bold text-white truncate max-w-[220px]">{project.name}</h2>
+          <span className="text-[11px] font-semibold text-sky-400 uppercase tracking-wider block">Control Remoto Fotográfico</span>
+          <h2 className="text-lg font-bold text-white truncate max-w-[200px]">{project.name}</h2>
         </div>
         <div className="flex items-center gap-2 px-3 py-1 bg-emerald-950/80 border border-emerald-800 rounded-full text-xs text-emerald-300 font-medium">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-          Conectado
+          Conectado en Vivo
         </div>
       </div>
 
@@ -275,25 +301,25 @@ export function CameraCapture({
                 {status === 'reserving' && (
                   <>
                     <RefreshCw className="w-10 h-10 text-sky-400 animate-spin mb-2" />
-                    <p className="text-sm font-semibold text-white">Reservando posición atómica...</p>
+                    <p className="text-sm font-semibold text-white">Reservando casilla...</p>
                   </>
                 )}
                 {status === 'compressing' && (
                   <>
                     <RefreshCw className="w-10 h-10 text-sky-400 animate-spin mb-2" />
-                    <p className="text-sm font-semibold text-white">Optimizando y comprimiendo imagen...</p>
+                    <p className="text-sm font-semibold text-white">Optimizando imagen para la web...</p>
                   </>
                 )}
                 {status === 'uploading' && (
                   <>
                     <UploadCloud className="w-10 h-10 text-sky-400 animate-bounce mb-2" />
-                    <p className="text-sm font-semibold text-white">Subiendo foto a la cuadrícula...</p>
+                    <p className="text-sm font-semibold text-white">Enviando en tiempo real a la pantalla...</p>
                   </>
                 )}
                 {status === 'success' && (
                   <>
                     <CheckCircle2 className="w-12 h-12 text-emerald-400 mb-2 animate-bounce" />
-                    <p className="text-base font-bold text-emerald-300">¡Fotografía guardada con éxito!</p>
+                    <p className="text-base font-bold text-emerald-300">¡Foto recibida en el visor web!</p>
                   </>
                 )}
                 {status === 'error' && (
@@ -301,7 +327,7 @@ export function CameraCapture({
                     <AlertCircle className="w-10 h-10 text-rose-400 mb-2" />
                     <p className="text-xs text-rose-200 mb-3">{errorMessage}</p>
                     <Button size="sm" variant="danger" onClick={handleConfirmAndUpload}>
-                      Reintentar Subida
+                      Reintentar Enviar
                     </Button>
                   </>
                 )}
@@ -317,7 +343,7 @@ export function CameraCapture({
                 className="flex-1 py-3 text-sm"
                 leftIcon={<RefreshCw className="w-4 h-4" />}
               >
-                Repetir Foto
+                Descartar
               </Button>
 
               <Button
@@ -326,33 +352,69 @@ export function CameraCapture({
                 className="flex-1 py-3 text-sm font-semibold"
                 leftIcon={<UploadCloud className="w-4 h-4" />}
               >
-                Confirmar y Subir
+                Enviar a la Web
               </Button>
             </div>
           )}
         </div>
       ) : (
-        <div className="w-full flex flex-col items-center gap-4 py-6">
+        <div className="w-full flex flex-col items-center gap-5 py-4">
+          {/* Botón Disparador Principal Móvil */}
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="w-full py-10 bg-sky-600 hover:bg-sky-500 active:scale-95 text-white font-bold text-lg rounded-3xl shadow-xl shadow-sky-600/30 border border-sky-400/30 flex flex-col items-center justify-center gap-3 transition-all duration-200"
+            className="w-full py-12 bg-gradient-to-b from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 active:scale-95 text-white font-bold text-xl rounded-3xl shadow-2xl shadow-sky-500/40 border border-sky-300/40 flex flex-col items-center justify-center gap-3 transition-all duration-200 group"
           >
-            <div className="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-md">
-              <Camera className="w-8 h-8 text-white" />
+            <div className="w-20 h-20 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-md border border-white/30 group-hover:scale-110 transition-transform">
+              <Camera className="w-10 h-10 text-white" />
             </div>
-            <span>TOMAR FOTOGRAFÍA</span>
+            <span className="tracking-wide">TOMAR FOTOGRAFÍA</span>
+            <span className="text-xs font-normal text-sky-100/90">Haz clic para abrir la cámara de tu teléfono</span>
           </button>
 
-          <Button
-            variant="outline"
-            onClick={() => galleryInputRef.current?.click()}
-            className="w-full py-3 text-sm text-slate-300 border-slate-700"
-            leftIcon={<ImageIcon className="w-4 h-4 text-slate-400" />}
-          >
-            Elegir de la galería
-          </Button>
+          {/* Toggle de Auto-Envío Instantáneo */}
+          <div className="w-full bg-slate-950/70 border border-slate-800 rounded-2xl p-3.5 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs text-slate-300">
+              <Zap className={`w-4 h-4 ${autoUpload ? 'text-amber-400 fill-amber-400' : 'text-slate-500'}`} />
+              <div>
+                <span className="font-semibold block text-white">Envío Automático Instantáneo</span>
+                <span className="text-[10px] text-slate-400">Envía la foto a la web inmediatamente sin previsualizar</span>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setAutoUpload(!autoUpload)}
+              className={`w-12 h-6 rounded-full transition-colors relative p-0.5 ${
+                autoUpload ? 'bg-sky-500' : 'bg-slate-700'
+              }`}
+            >
+              <div
+                className={`w-5 h-5 rounded-full bg-white transition-transform ${
+                  autoUpload ? 'translate-x-6' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+
+          <div className="w-full flex items-center justify-between gap-3">
+            <Button
+              variant="outline"
+              onClick={() => galleryInputRef.current?.click()}
+              className="flex-1 py-2.5 text-xs text-slate-300 border-slate-800"
+              leftIcon={<ImageIcon className="w-4 h-4 text-slate-400" />}
+            >
+              Elegir de la Galería
+            </Button>
+
+            {sentCount > 0 && (
+              <div className="flex items-center gap-1.5 px-3 py-2 bg-sky-950/60 border border-sky-800/80 rounded-xl text-xs font-semibold text-sky-300">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span>{sentCount} enviadas</span>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
   );
 }
+
