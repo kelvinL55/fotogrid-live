@@ -49,7 +49,7 @@ export default function DashboardPage() {
     }
 
     // Unir con proyectos locales
-    let localDemoProjects: Project[] = JSON.parse(
+    const localDemoProjects: Project[] = JSON.parse(
       (typeof window !== 'undefined' && localStorage.getItem('demo_projects')) || '[]'
     );
 
