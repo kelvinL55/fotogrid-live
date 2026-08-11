@@ -60,9 +60,9 @@ export default function DashboardPage() {
       const defaultProject: Project = {
         id: 'session-live-default',
         name: 'Mi Sesión FotoGrid en Vivo',
-        pairing_code: 'FG-' + Math.floor(1000 + Math.random() * 9000),
+        pairing_code: 'FG-8888',
         status: 'active',
-        created_at: new Date().toISOString(),
+        created_at: new Date('2026-01-01').toISOString(),
         updated_at: new Date().toISOString(),
         expires_at: null,
         archived_at: null,

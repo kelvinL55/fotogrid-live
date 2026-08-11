@@ -106,8 +106,9 @@ export function CameraCapture({
       const storagePath = `${userId}/${project.id}/${itemId}/v${currentVersion}.${fileExt}`;
 
       let isSupabaseUploaded = false;
+      let finalPublicUrl: string | undefined = undefined;
 
-      // Intentar subir a Supabase Storage
+      // 1. Intentar subir a Supabase Storage
       try {
         const { error: uploadError } = await supabase.storage
           .from(APP_CONFIG.storage.bucketName)
@@ -117,9 +118,17 @@ export function CameraCapture({
           });
 
         if (!uploadError) {
+          const { data: urlData } = supabase.storage
+            .from(APP_CONFIG.storage.bucketName)
+            .getPublicUrl(storagePath);
+          finalPublicUrl = urlData?.publicUrl;
+
           await supabase
             .from('project_items')
-            .update({
+            .upsert({
+              id: itemId,
+              project_id: project.id,
+              position: targetPosition,
               status: 'active',
               storage_path: storagePath,
               original_filename: fileToUpload.name,
@@ -130,49 +139,51 @@ export function CameraCapture({
               uploaded_at: new Date().toISOString(),
               version: currentVersion,
               error_message: null,
-            })
-            .eq('id', itemId);
+            });
 
           isSupabaseUploaded = true;
         }
       } catch (_supabaseErr) {
-        // Fallback a modo demo
+        // Fallback a almacenamiento local si falla Supabase Storage/DB
       }
 
-      // Si no se pudo subir a Supabase (Modo Demo / Sin conexión), guardar en localStorage
-      if (!isSupabaseUploaded && typeof window !== 'undefined') {
-        const dataUrl = await fileToDataUrl(processed.file);
-        const demoItem: ProjectItem = {
-          id: itemId,
-          project_id: project.id,
-          position: targetPosition,
-          status: 'active',
-          storage_path: null,
-          original_filename: fileToUpload.name,
-          mime_type: processed.file.type,
-          file_size: processed.file.size,
-          width: processed.width,
-          height: processed.height,
-          captured_at: new Date().toISOString(),
-          uploaded_at: new Date().toISOString(),
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          version: currentVersion,
-          error_message: null,
-          public_url: dataUrl,
-        };
+      // 2. Si no hay publicUrl de Supabase, generar Data URL base64
+      if (!finalPublicUrl) {
+        finalPublicUrl = await fileToDataUrl(processed.file);
+      }
 
+      const activeItem: ProjectItem = {
+        id: itemId,
+        project_id: project.id,
+        position: targetPosition,
+        status: 'active',
+        storage_path: isSupabaseUploaded ? storagePath : null,
+        original_filename: fileToUpload.name,
+        mime_type: processed.file.type,
+        file_size: processed.file.size,
+        width: processed.width,
+        height: processed.height,
+        captured_at: new Date().toISOString(),
+        uploaded_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        version: currentVersion,
+        error_message: null,
+        public_url: finalPublicUrl,
+      };
+
+      // 3. Guardar localmente en el dispositivo
+      if (typeof window !== 'undefined') {
         const existing: ProjectItem[] = JSON.parse(
           localStorage.getItem(`demo_items_${project.id}`) || '[]'
         );
 
-        const updated = existing.filter((i) => i.position !== targetPosition);
-        updated.push(demoItem);
+        const updated = existing.filter((i) => i.position !== targetPosition && i.id !== itemId);
+        updated.push(activeItem);
         updated.sort((a, b) => a.position - b.position);
 
         localStorage.setItem(`demo_items_${project.id}`, JSON.stringify(updated));
 
-        // Actualizar contador del proyecto si era una nueva casilla
         if (!replacementTargetItem) {
           const demoProjects: Project[] = JSON.parse(
             localStorage.getItem('demo_projects') || '[]'
@@ -184,17 +195,16 @@ export function CameraCapture({
           }
         }
 
-        // Disparar evento para actualizar la cuadrícula en vivo entre pestañas/dispositivos
         window.dispatchEvent(new Event('storage'));
       }
 
-      // Enviar evento Broadcast en tiempo real a todas las pantallas web abiertas
+      // 4. Transmitir inmediatamente vía Supabase Realtime Broadcast a todas las pantallas web suscritas en vivo
       try {
         const channel = supabase.channel(`project_items:${project.id}`);
         channel.send({
           type: 'broadcast',
           event: 'new_photo',
-          payload: { itemId, position: targetPosition, timestamp: new Date().toISOString() },
+          payload: { item: activeItem, itemId: activeItem.id, position: targetPosition, timestamp: new Date().toISOString() },
         });
       } catch (_bcErr) {
         // Ignorar fallo de broadcast

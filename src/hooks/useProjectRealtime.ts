@@ -106,8 +106,17 @@ export function useProjectRealtime(projectId: string) {
         'broadcast',
         { event: 'new_photo' },
         async (payload: any) => {
-          if (payload.payload?.itemId) {
-            setLatestPhotoId(payload.payload.itemId);
+          const incomingItem = payload.payload?.item as ProjectItem | undefined;
+          if (incomingItem) {
+            setLatestPhotoId(incomingItem.id);
+            setItems((prev) => {
+              const filtered = prev.filter(
+                (i) => i.id !== incomingItem.id && i.position !== incomingItem.position
+              );
+              const updated = [...filtered, incomingItem];
+              updated.sort((a, b) => a.position - b.position);
+              return updated;
+            });
           }
           await fetchItems();
         }
@@ -130,13 +139,13 @@ export function useProjectRealtime(projectId: string) {
     };
   }, [projectId, fetchItems, supabase]);
 
-  const broadcastNewPhoto = useCallback((itemId: string, position: number) => {
-    setLatestPhotoId(itemId);
+  const broadcastNewPhoto = useCallback((item: ProjectItem) => {
+    setLatestPhotoId(item.id);
     const channel = supabase.channel(`project_items:${projectId}`);
     channel.send({
       type: 'broadcast',
       event: 'new_photo',
-      payload: { itemId, position, timestamp: new Date().toISOString() },
+      payload: { item, itemId: item.id, position: item.position, timestamp: new Date().toISOString() },
     });
   }, [projectId, supabase]);
 
