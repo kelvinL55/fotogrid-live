@@ -19,6 +19,8 @@ import {
   Check,
 } from 'lucide-react';
 
+import { Dialog } from '@/components/ui/Dialog';
+
 export default function ProjectViewerPage({
   params,
 }: {
@@ -35,24 +37,23 @@ export default function ProjectViewerPage({
   const [loading, setLoading] = useState(true);
   const [qrModalOpen, setQrModalOpen] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
+  const [showMobileModal, setShowMobileModal] = useState(false);
 
   useEffect(() => {
     async function loadProject() {
       let foundProject: Project | null = null;
 
       try {
-        const { data } = await supabase
-          .from('projects')
-          .select('*')
-          .eq('id', projectId)
-          .single();
-
-        if (data) foundProject = data;
+        const res = await fetch(`/api/projects?id=${projectId}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.project) foundProject = json.project;
+        }
       } catch (_err) {
-        // Ignorar error si no hay conexión
+        // Ignorar fallo de red
       }
 
-      // Si no se encontró en Supabase, buscar en demo_projects en localStorage
+      // Si no se encontró en API, buscar en demo_projects en localStorage
       if (!foundProject && typeof window !== 'undefined') {
         const demoProjects: Project[] = JSON.parse(localStorage.getItem('demo_projects') || '[]');
         foundProject = demoProjects.find((p) => p.id === projectId) || null;
@@ -66,6 +67,15 @@ export default function ProjectViewerPage({
 
       setProject(foundProject);
       setLoading(false);
+
+      // Detección automática de dispositivo móvil
+      if (typeof window !== 'undefined') {
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.innerWidth < 768;
+        const choiceMade = sessionStorage.getItem(`mobile_choice_${projectId}`);
+        if (isMobile && !choiceMade) {
+          setShowMobileModal(true);
+        }
+      }
     }
 
     loadProject();
@@ -160,6 +170,48 @@ export default function ProjectViewerPage({
         onClose={() => setQrModalOpen(false)}
         project={project}
       />
+
+      {/* MODAL DETECTOR DE DISPOSITIVO MÓVIL */}
+      <Dialog
+        isOpen={showMobileModal}
+        onClose={() => {
+          sessionStorage.setItem(`mobile_choice_${projectId}`, 'stay');
+          setShowMobileModal(false);
+        }}
+        title="📱 ¿Estás usando tu teléfono móvil?"
+        description="Detectamos que estás navegando desde un dispositivo móvil."
+      >
+        <div className="space-y-4 pt-2">
+          <p className="text-sm text-slate-300">
+            ¿Deseas usar tu teléfono como <strong>Control Remoto de Cámara</strong> para enviar fotos directamente al computador en tiempo real?
+          </p>
+
+          <div className="flex flex-col gap-3 pt-2">
+            <Button
+              variant="primary"
+              onClick={() => {
+                sessionStorage.setItem(`mobile_choice_${projectId}`, 'camera');
+                router.push(`/project/${project.id}/camera`);
+              }}
+              leftIcon={<Camera className="w-5 h-5" />}
+              className="py-3 text-sm font-bold"
+            >
+              📷 Abrir Cámara Remota Móvil (Recomendado)
+            </Button>
+
+            <Button
+              variant="secondary"
+              onClick={() => {
+                sessionStorage.setItem(`mobile_choice_${projectId}`, 'stay');
+                setShowMobileModal(false);
+              }}
+              className="py-2.5 text-xs text-slate-400"
+            >
+              💻 Permanecer en el Visor de Cuadrícula
+            </Button>
+          </div>
+        </div>
+      </Dialog>
     </div>
   );
 }

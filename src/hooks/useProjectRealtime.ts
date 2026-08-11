@@ -15,37 +15,21 @@ export function useProjectRealtime(projectId: string) {
   const [latestPhotoId, setLatestPhotoId] = useState<string | null>(null);
 
   const fetchItems = useCallback(async () => {
-    let supabaseItems: ProjectItem[] = [];
+    let apiItems: ProjectItem[] = [];
 
     try {
-      const { data, error } = await supabase
-        .from('project_items')
-        .select('*')
-        .eq('project_id', projectId)
-        .order('position', { ascending: true });
-
-      if (!error && data) {
-        supabaseItems = await Promise.all(
-          data.map(async (item: ProjectItem) => {
-            if (item.storage_path && item.status === 'active') {
-              const { data: urlData } = await supabase.storage
-                .from(APP_CONFIG.storage.bucketName)
-                .createSignedUrl(item.storage_path, APP_CONFIG.storage.signedUrlExpiresInSeconds);
-
-              return {
-                ...item,
-                public_url: urlData?.signedUrl || undefined,
-              };
-            }
-            return item;
-          })
-        );
+      const res = await fetch(`/api/items?projectId=${projectId}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.items && Array.isArray(json.items)) {
+          apiItems = json.items;
+        }
       }
     } catch (_err) {
-      // Ignorar fallo de Supabase en modo demo
+      // Ignorar fallo de red
     }
 
-    // Cargar items guardados localmente para Modo Demo si no hay conexión a Supabase
+    // Unir con items locales si hay
     let demoItems: ProjectItem[] = [];
     if (typeof window !== 'undefined') {
       const stored = localStorage.getItem(`demo_items_${projectId}`);
@@ -58,10 +42,9 @@ export function useProjectRealtime(projectId: string) {
       }
     }
 
-    // Fusionar manteniendo prioridad y orden por posición
-    const combined = [...supabaseItems];
+    const combined = [...apiItems];
     for (const demoItem of demoItems) {
-      if (!combined.some((i) => i.position === demoItem.position)) {
+      if (!combined.some((i) => i.id === demoItem.id || i.position === demoItem.position)) {
         combined.push(demoItem);
       }
     }
@@ -69,7 +52,7 @@ export function useProjectRealtime(projectId: string) {
     combined.sort((a, b) => a.position - b.position);
     setItems(combined);
     setLoading(false);
-  }, [projectId, supabase]);
+  }, [projectId]);
 
   useEffect(() => {
     fetchItems();

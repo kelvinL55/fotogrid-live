@@ -99,52 +99,44 @@ export function CameraCapture({
       const processed = await compressImage(fileToUpload);
 
       setStatus('uploading');
-      const { data: userData } = await supabase.auth.getUser();
-      const userId = userData.user?.id || 'demo-user-123';
-
-      const fileExt = processed.file.name.split('.').pop() || 'jpg';
-      const storagePath = `${userId}/${project.id}/${itemId}/v${currentVersion}.${fileExt}`;
-
-      let isSupabaseUploaded = false;
       let finalPublicUrl: string | undefined = undefined;
+      let isUploadedToServer = false;
 
-      // 1. Intentar subir a Supabase Storage
+      // 1. Enviar imagen a la API centralizada del servidor Vercel /api/items
       try {
-        const { error: uploadError } = await supabase.storage
-          .from(APP_CONFIG.storage.bucketName)
-          .upload(storagePath, processed.file, {
-            contentType: processed.file.type,
-            upsert: true,
-          });
+        const formData = new FormData();
+        const baseItem: Partial<ProjectItem> = {
+          id: itemId,
+          project_id: project.id,
+          position: targetPosition,
+          status: 'active',
+          original_filename: fileToUpload.name,
+          mime_type: processed.file.type,
+          file_size: processed.file.size,
+          width: processed.width,
+          height: processed.height,
+          captured_at: new Date().toISOString(),
+          uploaded_at: new Date().toISOString(),
+          version: currentVersion,
+        };
 
-        if (!uploadError) {
-          const { data: urlData } = supabase.storage
-            .from(APP_CONFIG.storage.bucketName)
-            .getPublicUrl(storagePath);
-          finalPublicUrl = urlData?.publicUrl;
+        formData.append('item', JSON.stringify(baseItem));
+        formData.append('file', processed.file);
 
-          await supabase
-            .from('project_items')
-            .upsert({
-              id: itemId,
-              project_id: project.id,
-              position: targetPosition,
-              status: 'active',
-              storage_path: storagePath,
-              original_filename: fileToUpload.name,
-              mime_type: processed.file.type,
-              file_size: processed.file.size,
-              width: processed.width,
-              height: processed.height,
-              uploaded_at: new Date().toISOString(),
-              version: currentVersion,
-              error_message: null,
-            });
+        const res = await fetch('/api/items', {
+          method: 'POST',
+          body: formData,
+        });
 
-          isSupabaseUploaded = true;
+        if (res.ok) {
+          const json = await res.json();
+          if (json.item && json.item.public_url) {
+            finalPublicUrl = json.item.public_url;
+            isUploadedToServer = true;
+          }
         }
-      } catch (_supabaseErr) {
-        // Fallback a almacenamiento local si falla Supabase Storage/DB
+      } catch (_apiErr) {
+        // Fallback
       }
 
       // 2. Si no hay publicUrl de Supabase, generar Data URL base64
@@ -157,7 +149,7 @@ export function CameraCapture({
         project_id: project.id,
         position: targetPosition,
         status: 'active',
-        storage_path: isSupabaseUploaded ? storagePath : null,
+        storage_path: isUploadedToServer ? `public/${project.id}/${itemId}` : null,
         original_filename: fileToUpload.name,
         mime_type: processed.file.type,
         file_size: processed.file.size,
