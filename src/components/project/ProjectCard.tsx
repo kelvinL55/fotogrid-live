@@ -56,7 +56,7 @@ export function ProjectCard({ project, onOpenQR, onRefresh }: ProjectCardProps) 
       }
     }
 
-    // Intentar actualizar en Supabase
+    // Actualizar en Supabase
     try {
       await supabase
         .from('projects')
@@ -66,7 +66,7 @@ export function ProjectCard({ project, onOpenQR, onRefresh }: ProjectCardProps) 
         })
         .eq('id', project.id);
     } catch (_err) {
-      // Ignorar fallo de permisos RLS
+      // Ignorar
     }
 
     showToast(
@@ -80,7 +80,14 @@ export function ProjectCard({ project, onOpenQR, onRefresh }: ProjectCardProps) 
     setDeleting(true);
 
     try {
-      // 1. Eliminar siempre de localStorage (demo_projects) y demo_items
+      // 1. Eliminar a través de la API centralizada
+      try {
+        await fetch(`/api/projects?id=${project.id}`, { method: 'DELETE' });
+      } catch (_apiErr) {
+        // Ignorar
+      }
+
+      // 2. Eliminar de localStorage (demo_projects) y demo_items
       if (typeof window !== 'undefined') {
         const demoProjects: Project[] = JSON.parse(localStorage.getItem('demo_projects') || '[]');
         const filteredProjects = demoProjects.filter((p) => p.id !== project.id);
@@ -89,7 +96,7 @@ export function ProjectCard({ project, onOpenQR, onRefresh }: ProjectCardProps) 
         window.dispatchEvent(new Event('storage'));
       }
 
-      // 2. Intentar eliminar archivos de Supabase Storage
+      // 3. Eliminar de Supabase Storage & DB directamente
       try {
         const { data: items } = await supabase
           .from('project_items')
@@ -105,16 +112,10 @@ export function ProjectCard({ project, onOpenQR, onRefresh }: ProjectCardProps) 
             await supabase.storage.from(APP_CONFIG.storage.bucketName).remove(pathsToDelete);
           }
         }
-      } catch (_storageErr) {
-        // Ignorar
-      }
-
-      // 3. Intentar eliminar de Supabase DB
-      try {
         await supabase.from('project_items').delete().eq('project_id', project.id);
         await supabase.from('projects').delete().eq('id', project.id);
       } catch (_dbErr) {
-        // Ignorar fallo por RLS/permisos de Supabase ya que se limpió en local
+        // Ignorar
       }
 
       showToast(`Proyecto "${project.name}" eliminado correctamente.`, 'success');
@@ -211,7 +212,7 @@ export function ProjectCard({ project, onOpenQR, onRefresh }: ProjectCardProps) 
         </div>
       </div>
 
-      {/* DIÁLOGO SIMPLIFICADO DE CONFIRMACIÓN DE ELIMINACIÓN DE 1 CLIC */}
+      {/* DIÁLOGO DE CONFIRMACIÓN DE ELIMINACIÓN */}
       <Dialog
         isOpen={deleteModalOpen}
         onClose={() => setDeleteModalOpen(false)}

@@ -3,11 +3,12 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { ProjectItem } from '@/lib/types';
-import { APP_CONFIG } from '@/lib/config';
+import { normalizeProjectId } from '@/lib/utils/project';
 
 export type RealtimeConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
 
-export function useProjectRealtime(projectId: string) {
+export function useProjectRealtime(rawProjectId: string) {
+  const projectId = normalizeProjectId(rawProjectId);
   const supabase = useMemo(() => createClient(), []);
   const [items, setItems] = useState<ProjectItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,10 +30,10 @@ export function useProjectRealtime(projectId: string) {
       // Ignorar fallo de red
     }
 
-    // Unir con items locales si hay
+    // Unir con items locales si estamos offline o en modo contingencia
     let demoItems: ProjectItem[] = [];
     if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem(`demo_items_${projectId}`);
+      const stored = localStorage.getItem(`demo_items_${projectId}`) || localStorage.getItem(`demo_items_${rawProjectId}`);
       if (stored) {
         try {
           demoItems = JSON.parse(stored);
@@ -52,14 +53,14 @@ export function useProjectRealtime(projectId: string) {
     combined.sort((a, b) => a.position - b.position);
     setItems(combined);
     setLoading(false);
-  }, [projectId]);
+  }, [projectId, rawProjectId]);
 
   useEffect(() => {
     fetchItems();
 
-    // Escuchar eventos 'storage' entre pestañas/ventanas para actualizar la cuadrícula local en tiempo real
+    // Escuchar eventos 'storage' entre pestañas para actualización local inmediata
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === `demo_items_${projectId}` || e.key === 'demo_projects') {
+      if (e.key === `demo_items_${projectId}` || e.key === `demo_items_${rawProjectId}` || e.key === 'demo_projects') {
         fetchItems();
       }
     };
@@ -68,6 +69,7 @@ export function useProjectRealtime(projectId: string) {
       window.addEventListener('storage', handleStorageChange);
     }
 
+    // Suscribir al canal Realtime de Supabase
     const channel = supabase
       .channel(`project_items:${projectId}`)
       .on(
@@ -120,7 +122,7 @@ export function useProjectRealtime(projectId: string) {
       }
       supabase.removeChannel(channel);
     };
-  }, [projectId, fetchItems, supabase]);
+  }, [projectId, rawProjectId, fetchItems, supabase]);
 
   const broadcastNewPhoto = useCallback((item: ProjectItem) => {
     setLatestPhotoId(item.id);
@@ -141,4 +143,3 @@ export function useProjectRealtime(projectId: string) {
     broadcastNewPhoto,
   };
 }
-

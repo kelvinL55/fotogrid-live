@@ -1,33 +1,39 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { Project } from '@/lib/types';
+import { normalizeProjectId, generateUUID, isValidUUID, DEFAULT_PROJECT_ID } from '@/lib/utils/project';
 
 function getSupabaseAdmin() {
   const url = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim();
-  const key = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '').trim();
-  return createClient(url, key);
+  const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '').trim();
+  return createClient(url, key, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
 }
 
 // GET /api/projects?id=XYZ o /api/projects?pairingCode=ABC o list todos
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const id = searchParams.get('id');
+  const rawId = searchParams.get('id');
   const pairingCode = searchParams.get('pairingCode');
   const supabase = getSupabaseAdmin();
 
   try {
-    if (id) {
+    if (rawId) {
+      const id = normalizeProjectId(rawId);
       let { data } = await supabase
         .from('projects')
         .select('*')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
-      if (!data && id === 'session-live-default') {
-        // Auto-crear proyecto por defecto en la base de datos si no existe
+      if (!data && (id === DEFAULT_PROJECT_ID || rawId === 'session-live-default')) {
+        // Auto-crear proyecto por defecto en Supabase si no existe aún
         const defaultProject = {
-          id: 'session-live-default',
-          owner_id: '00000000-0000-0000-0000-000000000000',
+          id: DEFAULT_PROJECT_ID,
           name: 'Mi Sesión FotoGrid en Vivo',
           pairing_code: 'FG-8888',
           next_position: 1,
@@ -55,7 +61,7 @@ export async function GET(request: Request) {
         .from('projects')
         .select('*')
         .eq('pairing_code', pairingCode.toUpperCase())
-        .single();
+        .maybeSingle();
 
       return NextResponse.json({ project: data });
     }
@@ -67,6 +73,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ projects: data || [] });
   } catch (err: any) {
+    console.error('Error en GET /api/projects:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
@@ -76,9 +83,10 @@ export async function POST(request: Request) {
   const supabase = getSupabaseAdmin();
   try {
     const body = await request.json();
+    const projectId = body.id && isValidUUID(body.id) ? body.id : generateUUID();
+
     const newProject: Partial<Project> = {
-      id: body.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 11)),
-      owner_id: body.owner_id || '00000000-0000-0000-0000-000000000000',
+      id: projectId,
       name: body.name || 'Nuevo Proyecto FotoGrid',
       pairing_code: body.pairing_code || ('FG-' + Math.floor(1000 + Math.random() * 9000)),
       next_position: 1,
@@ -89,6 +97,10 @@ export async function POST(request: Request) {
       updated_at: new Date().toISOString(),
     };
 
+    if (body.owner_id && isValidUUID(body.owner_id)) {
+      newProject.owner_id = body.owner_id;
+    }
+
     const { data, error } = await supabase
       .from('projects')
       .upsert(newProject)
@@ -96,11 +108,13 @@ export async function POST(request: Request) {
       .single();
 
     if (error) {
+      console.warn('Advertencia al insertar proyecto en Supabase:', error.message);
       return NextResponse.json({ project: newProject, warning: error.message });
     }
 
     return NextResponse.json({ project: data });
   } catch (err: any) {
+    console.error('Error en POST /api/projects:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
@@ -108,9 +122,10 @@ export async function POST(request: Request) {
 // DELETE /api/projects?id=XYZ
 export async function DELETE(request: Request) {
   const { searchParams } = new URL(request.url);
-  const id = searchParams.get('id');
-  if (!id) return NextResponse.json({ error: 'ID requerido' }, { status: 400 });
+  const rawId = searchParams.get('id');
+  if (!rawId) return NextResponse.json({ error: 'ID requerido' }, { status: 400 });
 
+  const id = normalizeProjectId(rawId);
   const supabase = getSupabaseAdmin();
   try {
     await supabase.from('project_items').delete().eq('project_id', id);

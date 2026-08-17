@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/Toast';
 import { createClient } from '@/lib/supabase/client';
 import { compressImage } from '@/lib/utils/image';
-import { APP_CONFIG } from '@/lib/config';
+import { normalizeProjectId, generateUUID } from '@/lib/utils/project';
 import { Camera, Image as ImageIcon, RefreshCw, UploadCloud, CheckCircle2, AlertCircle, Zap, ShieldCheck } from 'lucide-react';
 import { Project, ProjectItem } from '@/lib/types';
 
@@ -38,6 +38,8 @@ export function CameraCapture({
   const [autoUpload, setAutoUpload] = useState<boolean>(true);
   const [sentCount, setSentCount] = useState<number>(0);
 
+  const normalizedProjectId = normalizeProjectId(project.id);
+
   const handleRetake = () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setSelectedFile(null);
@@ -48,7 +50,7 @@ export function CameraCapture({
     if (galleryInputRef.current) galleryInputRef.current.value = '';
   };
 
-  // Convertir File a DataURL base64 para Modo Demo local
+  // Convertir File a DataURL base64 para fallback inmediato si offline
   const fileToDataUrl = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -67,7 +69,7 @@ export function CameraCapture({
       if (replacementTargetItem) {
         itemId = replacementTargetItem.id;
         targetPosition = replacementTargetItem.position;
-        currentVersion = replacementTargetItem.version + 1;
+        currentVersion = (replacementTargetItem.version || 1) + 1;
         setStatus('compressing');
       } else {
         setStatus('reserving');
@@ -75,21 +77,21 @@ export function CameraCapture({
         let rpcData: any = null;
         try {
           const res = await supabase.rpc('reserve_next_project_position', {
-            p_project_id: project.id,
+            p_project_id: normalizedProjectId,
           });
           if (res.data && res.data.length > 0) {
             rpcData = res.data;
           }
         } catch (_e) {
-          // Ignorar error en modo demo
+          // Ignorar error si la función RPC aún no está creada
         }
 
         if (rpcData) {
           itemId = rpcData[0].item_id;
           targetPosition = rpcData[0].reserved_position;
         } else {
-          // Fallback para Modo Demo
-          itemId = Math.random().toString(36).substring(2, 11);
+          // Fallback con UUID válido
+          itemId = generateUUID();
           targetPosition = project.next_position || 1;
         }
         setAssignedPosition(targetPosition);
@@ -102,12 +104,12 @@ export function CameraCapture({
       let finalPublicUrl: string | undefined = undefined;
       let isUploadedToServer = false;
 
-      // 1. Enviar imagen a la API centralizada del servidor Vercel /api/items
+      // 1. Enviar imagen a la API centralizada del servidor /api/items
       try {
         const formData = new FormData();
         const baseItem: Partial<ProjectItem> = {
           id: itemId,
-          project_id: project.id,
+          project_id: normalizedProjectId,
           position: targetPosition,
           status: 'active',
           original_filename: fileToUpload.name,
@@ -134,22 +136,25 @@ export function CameraCapture({
             finalPublicUrl = json.item.public_url;
             isUploadedToServer = true;
           }
+        } else {
+          const json = await res.json().catch(() => ({}));
+          console.warn('API /api/items reportó error:', json);
         }
-      } catch (_apiErr) {
-        // Fallback
+      } catch (apiErr) {
+        console.error('Error conectando a /api/items:', apiErr);
       }
 
-      // 2. Si no hay publicUrl de Supabase, generar Data URL base64
+      // 2. Si no hay publicUrl del servidor, generar Data URL base64 como respaldo
       if (!finalPublicUrl) {
         finalPublicUrl = await fileToDataUrl(processed.file);
       }
 
       const activeItem: ProjectItem = {
         id: itemId,
-        project_id: project.id,
+        project_id: normalizedProjectId,
         position: targetPosition,
         status: 'active',
-        storage_path: isUploadedToServer ? `public/${project.id}/${itemId}` : null,
+        storage_path: isUploadedToServer ? `public/${normalizedProjectId}/${itemId}` : null,
         original_filename: fileToUpload.name,
         mime_type: processed.file.type,
         file_size: processed.file.size,
@@ -164,23 +169,26 @@ export function CameraCapture({
         public_url: finalPublicUrl,
       };
 
-      // 3. Guardar localmente en el dispositivo
+      // 3. Guardar en caché local
       if (typeof window !== 'undefined') {
         const existing: ProjectItem[] = JSON.parse(
-          localStorage.getItem(`demo_items_${project.id}`) || '[]'
+          localStorage.getItem(`demo_items_${normalizedProjectId}`) || '[]'
         );
 
         const updated = existing.filter((i) => i.position !== targetPosition && i.id !== itemId);
         updated.push(activeItem);
         updated.sort((a, b) => a.position - b.position);
 
-        localStorage.setItem(`demo_items_${project.id}`, JSON.stringify(updated));
+        localStorage.setItem(`demo_items_${normalizedProjectId}`, JSON.stringify(updated));
+        if (project.id !== normalizedProjectId) {
+          localStorage.setItem(`demo_items_${project.id}`, JSON.stringify(updated));
+        }
 
         if (!replacementTargetItem) {
           const demoProjects: Project[] = JSON.parse(
             localStorage.getItem('demo_projects') || '[]'
           );
-          const pIndex = demoProjects.findIndex((p) => p.id === project.id);
+          const pIndex = demoProjects.findIndex((p) => p.id === project.id || p.id === normalizedProjectId);
           if (pIndex >= 0) {
             demoProjects[pIndex].next_position = targetPosition + 1;
             localStorage.setItem('demo_projects', JSON.stringify(demoProjects));
@@ -190,13 +198,17 @@ export function CameraCapture({
         window.dispatchEvent(new Event('storage'));
       }
 
-      // 4. Transmitir inmediatamente vía Supabase Realtime Broadcast a todas las pantallas web suscritas en vivo
+      // 4. Transmitir inmediatamente vía Supabase Realtime Broadcast a todas las pantallas web en vivo
       try {
-        const channel = supabase.channel(`project_items:${project.id}`);
-        channel.send({
-          type: 'broadcast',
-          event: 'new_photo',
-          payload: { item: activeItem, itemId: activeItem.id, position: targetPosition, timestamp: new Date().toISOString() },
+        const channel = supabase.channel(`project_items:${normalizedProjectId}`);
+        channel.subscribe((subStatus) => {
+          if (subStatus === 'SUBSCRIBED') {
+            channel.send({
+              type: 'broadcast',
+              event: 'new_photo',
+              payload: { item: activeItem, itemId: activeItem.id, position: targetPosition, timestamp: new Date().toISOString() },
+            });
+          }
         });
       } catch (_bcErr) {
         // Ignorar fallo de broadcast
@@ -207,7 +219,7 @@ export function CameraCapture({
       showToast(`¡Foto #${targetPosition} enviada en vivo a la pantalla web!`, 'success');
       onUploadSuccess();
 
-      // Reinicio ultrarrápido para estar listo para la siguiente toma
+      // Reinicio rápido para la siguiente toma
       setTimeout(() => {
         handleRetake();
       }, 700);
@@ -419,4 +431,3 @@ export function CameraCapture({
     </div>
   );
 }
-

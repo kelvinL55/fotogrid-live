@@ -2,22 +2,29 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { ProjectItem } from '@/lib/types';
 import { APP_CONFIG } from '@/lib/config';
+import { normalizeProjectId, generateUUID, isValidUUID } from '@/lib/utils/project';
 
 function getSupabaseAdmin() {
   const url = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim();
-  const key = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '').trim();
-  return createClient(url, key);
+  const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '').trim();
+  return createClient(url, key, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
 }
 
 // GET /api/items?projectId=XYZ
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const projectId = searchParams.get('projectId');
+  const rawProjectId = searchParams.get('projectId');
 
-  if (!projectId) {
+  if (!rawProjectId) {
     return NextResponse.json({ items: [] });
   }
 
+  const projectId = normalizeProjectId(rawProjectId);
   const supabase = getSupabaseAdmin();
 
   try {
@@ -27,11 +34,12 @@ export async function GET(request: Request) {
       .eq('project_id', projectId)
       .order('position', { ascending: true });
 
-    if (error || !data) {
-      return NextResponse.json({ items: [] });
+    if (error) {
+      console.error('Error al consultar project_items de Supabase:', error);
+      return NextResponse.json({ items: [], warning: error.message });
     }
 
-    const items = data.map((item: any) => {
+    const items = (data || []).map((item: any) => {
       let publicUrl = item.public_url;
       if (!publicUrl && item.storage_path) {
         const { data: urlData } = supabase.storage
@@ -47,6 +55,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ items });
   } catch (err: any) {
+    console.error('Fallo inesperado en GET /api/items:', err);
     return NextResponse.json({ items: [], error: err.message });
   }
 }
@@ -58,6 +67,9 @@ export async function POST(request: Request) {
   try {
     const contentType = request.headers.get('content-type') || '';
     let itemData: Partial<ProjectItem> = {};
+    let uploadedFileBuffer: Buffer | null = null;
+    let fileExt = 'jpg';
+    let fileMimeType = 'image/jpeg';
 
     if (contentType.includes('application/json')) {
       const body = await request.json();
@@ -70,47 +82,53 @@ export async function POST(request: Request) {
       }
 
       const file = formData.get('file') as File | null;
-      if (file && itemData.project_id && itemData.id) {
-        const fileExt = file.name.split('.').pop() || 'jpg';
-        const storagePath = `public/${itemData.project_id}/${itemData.id}.${fileExt}`;
-
-        const buffer = Buffer.from(await file.arrayBuffer());
-        const { error: uploadErr } = await supabase.storage
-          .from(APP_CONFIG.storage.bucketName)
-          .upload(storagePath, buffer, {
-            contentType: file.type || 'image/jpeg',
-            upsert: true,
-          });
-
-        if (!uploadErr) {
-          const { data: urlData } = supabase.storage
-            .from(APP_CONFIG.storage.bucketName)
-            .getPublicUrl(storagePath);
-
-          itemData.storage_path = storagePath;
-          itemData.public_url = urlData?.publicUrl;
-        }
+      if (file) {
+        fileExt = file.name.split('.').pop() || 'jpg';
+        fileMimeType = file.type || 'image/jpeg';
+        uploadedFileBuffer = Buffer.from(await file.arrayBuffer());
       }
     }
 
-    if (!itemData.project_id || !itemData.id) {
-      return NextResponse.json({ error: 'Datos incompletos para el item' }, { status: 400 });
+    const projectId = normalizeProjectId(itemData.project_id);
+    const itemId = itemData.id && isValidUUID(itemData.id) ? itemData.id : generateUUID();
+    let storagePath = itemData.storage_path || null;
+    let publicUrl: string | undefined = itemData.public_url;
+
+    // Subir archivo al bucket 'project-photos' de Supabase Storage
+    if (uploadedFileBuffer) {
+      storagePath = `public/${projectId}/${itemId}.${fileExt}`;
+      const { error: uploadErr } = await supabase.storage
+        .from(APP_CONFIG.storage.bucketName)
+        .upload(storagePath, uploadedFileBuffer, {
+          contentType: fileMimeType,
+          upsert: true,
+        });
+
+      if (uploadErr) {
+        console.error('Error al subir imagen a Supabase Storage:', uploadErr);
+      } else {
+        const { data: urlData } = supabase.storage
+          .from(APP_CONFIG.storage.bucketName)
+          .getPublicUrl(storagePath);
+        publicUrl = urlData?.publicUrl;
+      }
     }
 
+    const nowIso = new Date().toISOString();
     const dbRecord = {
-      id: itemData.id,
-      project_id: itemData.project_id,
-      position: itemData.position || 1,
+      id: itemId,
+      project_id: projectId,
+      position: Number(itemData.position) || 1,
       status: itemData.status || 'active',
-      storage_path: itemData.storage_path || null,
-      original_filename: itemData.original_filename || null,
-      mime_type: itemData.mime_type || null,
-      file_size: itemData.file_size || null,
+      storage_path: storagePath,
+      original_filename: itemData.original_filename || `${itemId}.${fileExt}`,
+      mime_type: fileMimeType,
+      file_size: itemData.file_size || (uploadedFileBuffer ? uploadedFileBuffer.length : null),
       width: itemData.width || null,
       height: itemData.height || null,
-      captured_at: itemData.captured_at || new Date().toISOString(),
-      uploaded_at: itemData.uploaded_at || new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      captured_at: itemData.captured_at || nowIso,
+      uploaded_at: itemData.uploaded_at || nowIso,
+      updated_at: nowIso,
       version: itemData.version || 1,
       error_message: null,
     };
@@ -121,26 +139,36 @@ export async function POST(request: Request) {
       .select()
       .single();
 
+    if (upsertErr) {
+      console.error('Error al guardar registro en project_items:', upsertErr);
+      return NextResponse.json({
+        error: upsertErr.message,
+        details: upsertErr.details,
+        item: { ...dbRecord, public_url: publicUrl },
+      }, { status: 500 });
+    }
+
     const resultItem: ProjectItem = {
       ...(savedRecord || dbRecord),
-      public_url: itemData.public_url || undefined,
+      public_url: publicUrl || undefined,
     };
 
-    // Incrementar next_position en proyectos si aplica
+    // Incrementar next_position en proyectos de forma segura
     try {
       await supabase
         .from('projects')
         .update({
-          next_position: (itemData.position || 1) + 1,
-          updated_at: new Date().toISOString(),
+          next_position: (Number(itemData.position) || 1) + 1,
+          updated_at: nowIso,
         })
-        .eq('id', itemData.project_id);
+        .eq('id', projectId);
     } catch (_e) {
-      // Ignorar
+      // No bloqueante
     }
 
     return NextResponse.json({ item: resultItem });
   } catch (err: any) {
+    console.error('Fallo crítico en POST /api/items:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

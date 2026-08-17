@@ -10,6 +10,7 @@ import { UploadQueueManager } from '@/components/camera/UploadQueueManager';
 import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useToast } from '@/components/ui/Toast';
+import { normalizeProjectId } from '@/lib/utils/project';
 import { ArrowLeft, Grid } from 'lucide-react';
 
 export default function MobileCameraPage({
@@ -18,7 +19,8 @@ export default function MobileCameraPage({
   params: Promise<{ id: string }>;
 }) {
   const resolvedParams = use(params);
-  const projectId = resolvedParams.id;
+  const rawProjectId = resolvedParams.id;
+  const projectId = normalizeProjectId(rawProjectId);
 
   const supabase = createClient();
   const router = useRouter();
@@ -35,21 +37,34 @@ export default function MobileCameraPage({
       let foundProject: Project | null = null;
 
       try {
-        const { data } = await supabase
-          .from('projects')
-          .select('*')
-          .eq('id', projectId)
-          .single();
-
-        if (data) foundProject = data;
+        const res = await fetch(`/api/projects?id=${rawProjectId}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.project) foundProject = json.project;
+        }
       } catch (_err) {
         // Ignorar fallo de red
+      }
+
+      // Fallback a Supabase directo con UUID normalizado
+      if (!foundProject) {
+        try {
+          const { data } = await supabase
+            .from('projects')
+            .select('*')
+            .eq('id', projectId)
+            .maybeSingle();
+
+          if (data) foundProject = data;
+        } catch (_e) {
+          // Ignorar
+        }
       }
 
       // Si no está en Supabase, buscar en localStorage
       if (!foundProject && typeof window !== 'undefined') {
         const demoProjects: Project[] = JSON.parse(localStorage.getItem('demo_projects') || '[]');
-        foundProject = demoProjects.find((p) => p.id === projectId) || null;
+        foundProject = demoProjects.find((p) => p.id === rawProjectId || p.id === projectId) || null;
       }
 
       if (!foundProject) {
@@ -67,7 +82,7 @@ export default function MobileCameraPage({
             .from('project_items')
             .select('*')
             .eq('id', replaceItemId)
-            .single();
+            .maybeSingle();
 
           if (itemData) setReplacementItem(itemData);
         } catch (_e) {
@@ -79,17 +94,19 @@ export default function MobileCameraPage({
     }
 
     loadProjectData();
-  }, [projectId, replaceItemId, supabase, router, showToast]);
+  }, [rawProjectId, projectId, replaceItemId, supabase, router, showToast]);
 
   const handleUploadSuccess = async () => {
     // Recargar datos del proyecto para actualizar contador next_position
-    const { data } = await supabase
-      .from('projects')
-      .select('*')
-      .eq('id', projectId)
-      .single();
-
-    if (data) setProject(data);
+    try {
+      const res = await fetch(`/api/projects?id=${rawProjectId}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.project) setProject(json.project);
+      }
+    } catch (_e) {
+      // Ignorar
+    }
     setReplacementItem(null);
   };
 
@@ -108,7 +125,7 @@ export default function MobileCameraPage({
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center p-4">
       {/* Header Móvil */}
       <div className="w-full max-w-md flex items-center justify-between py-3 mb-4">
-        <Link href={`/project/${project.id}`}>
+        <Link href={`/project/${rawProjectId}`}>
           <Button
             variant="ghost"
             size="sm"
@@ -123,7 +140,7 @@ export default function MobileCameraPage({
           Código: {project.pairing_code}
         </span>
 
-        <Link href={`/project/${project.id}`}>
+        <Link href={`/project/${rawProjectId}`}>
           <Button
             variant="secondary"
             size="sm"
@@ -136,7 +153,7 @@ export default function MobileCameraPage({
 
       {/* Administrador de Cola sin Conexión */}
       <UploadQueueManager
-        projectId={project.id}
+        projectId={projectId}
         onQueueEmpty={handleUploadSuccess}
       />
 

@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useToast } from '@/components/ui/Toast';
 import { APP_CONFIG } from '@/lib/config';
+import { DEFAULT_PROJECT_ID } from '@/lib/utils/project';
 import {
   FolderPlus,
   Camera,
@@ -33,32 +34,53 @@ export default function DashboardPage() {
 
   const fetchProjects = useCallback(async () => {
     setLoading(true);
-    let supabaseProjects: Project[] = [];
+    let loadedProjects: Project[] = [];
 
+    // 1. Consultar a la API centralizada
     try {
-      const { data, error } = await supabase
-        .from('projects')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (!error && data) {
-        supabaseProjects = data;
+      const res = await fetch('/api/projects');
+      if (res.ok) {
+        const json = await res.json();
+        if (json.projects && Array.isArray(json.projects)) {
+          loadedProjects = json.projects;
+        }
       }
     } catch (_err) {
-      // Ignorar error de red
+      // Ignorar
     }
 
-    // Unir con proyectos locales
+    // 2. Si la API no devolvió proyectos, consultar a Supabase directo
+    if (loadedProjects.length === 0) {
+      try {
+        const { data, error } = await supabase
+          .from('projects')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (!error && data && data.length > 0) {
+          loadedProjects = data;
+        }
+      } catch (_err) {
+        // Ignorar error de red
+      }
+    }
+
+    // 3. Unir con proyectos locales si los hay
     const localDemoProjects: Project[] = JSON.parse(
       (typeof window !== 'undefined' && localStorage.getItem('demo_projects')) || '[]'
     );
 
-    let allProjects = [...supabaseProjects, ...localDemoProjects];
+    const merged = [...loadedProjects];
+    for (const localP of localDemoProjects) {
+      if (!merged.some((p) => p.id === localP.id)) {
+        merged.push(localP);
+      }
+    }
 
-    // Si no hay ningún proyecto creado aún, crear uno automáticamente por defecto para acceso instantáneo
-    if (allProjects.length === 0 && typeof window !== 'undefined') {
+    // Si aún no hay proyectos, proveer proyecto por defecto
+    if (merged.length === 0) {
       const defaultProject: Project = {
-        id: 'session-live-default',
+        id: DEFAULT_PROJECT_ID,
         name: 'Mi Sesión FotoGrid en Vivo',
         pairing_code: 'FG-8888',
         status: 'active',
@@ -66,15 +88,14 @@ export default function DashboardPage() {
         updated_at: new Date().toISOString(),
         expires_at: null,
         archived_at: null,
-        owner_id: 'public-user',
+        owner_id: '00000000-0000-0000-0000-000000000000',
         preferred_density: 12,
         next_position: 1,
       };
-      localStorage.setItem('demo_projects', JSON.stringify([defaultProject]));
-      allProjects = [defaultProject];
+      merged.push(defaultProject);
     }
 
-    setProjects(allProjects);
+    setProjects(merged);
     setLoading(false);
   }, [supabase]);
 

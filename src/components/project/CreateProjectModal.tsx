@@ -4,8 +4,8 @@ import React, { useState } from 'react';
 import { Dialog } from '@/components/ui/Dialog';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/Toast';
-import { createClient } from '@/lib/supabase/client';
 import { APP_CONFIG } from '@/lib/config';
+import { generateUUID } from '@/lib/utils/project';
 import { FolderPlus, Clock } from 'lucide-react';
 import { Project } from '@/lib/types';
 
@@ -16,7 +16,6 @@ interface CreateProjectModalProps {
 }
 
 export function CreateProjectModal({ isOpen, onClose, onSuccess }: CreateProjectModalProps) {
-  const supabase = createClient();
   const { showToast } = useToast();
 
   const [name, setName] = useState('');
@@ -48,12 +47,10 @@ export function CreateProjectModal({ isOpen, onClose, onSuccess }: CreateProject
         expiresAt = now.toISOString();
       }
 
-      const { data: userData } = await supabase.auth.getUser();
-      const ownerId = userData.user?.id || 'demo-user-123';
+      const projectId = generateUUID();
 
       const newProject: Partial<Project> = {
-        id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 11),
-        owner_id: ownerId,
+        id: projectId,
         name: name.trim(),
         pairing_code: randomCode,
         next_position: 1,
@@ -64,11 +61,25 @@ export function CreateProjectModal({ isOpen, onClose, onSuccess }: CreateProject
         updated_at: new Date().toISOString(),
       };
 
-      // Intentar insertar en Supabase
-      const { error } = await supabase.from('projects').insert(newProject);
+      // 1. Guardar a través de la API centralizada
+      try {
+        const res = await fetch('/api/projects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newProject),
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.project) {
+            newProject.id = json.project.id;
+          }
+        }
+      } catch (_apiErr) {
+        // Ignorar
+      }
 
-      if (error) {
-        console.warn('Supabase no disponible, guardando proyecto en localStorage (Modo Demo):', error.message);
+      // 2. Guardar en localStorage de respaldo
+      if (typeof window !== 'undefined') {
         const existingDemoProjects = JSON.parse(localStorage.getItem('demo_projects') || '[]');
         localStorage.setItem('demo_projects', JSON.stringify([newProject, ...existingDemoProjects]));
       }
