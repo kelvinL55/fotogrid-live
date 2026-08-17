@@ -131,11 +131,9 @@ export function GridItem({
 
       await supabase.from('project_items').delete().eq('id', item.id);
 
-      const { error: rpcError } = await supabase.rpc('compact_project_positions', {
-        p_project_id: project.id,
+      await fetch(`/api/projects/compact?projectId=${project.id}`, {
+        method: 'POST',
       });
-
-      if (rpcError) throw rpcError;
 
       showToast(`Fotografía eliminada y cuadrícula compactada.`, 'success');
       onRefresh();

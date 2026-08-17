@@ -1,13 +1,11 @@
 'use client';
 
 import React, { useEffect, useState, useMemo, Suspense } from 'react';
-import Link from 'next/link';
 import { useRouter, useSearchParams, useParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Project, ProjectItem } from '@/lib/types';
 import { CameraCapture } from '@/components/camera/CameraCapture';
 import { UploadQueueManager } from '@/components/camera/UploadQueueManager';
-import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { normalizeProjectId } from '@/lib/utils/project';
@@ -90,28 +88,33 @@ function MobileCameraContent() {
     setReplacementItem(null);
   };
 
+  const handleGoToVisor = () => {
+    if (typeof window !== 'undefined') {
+      window.location.href = `/project/${rawProjectId}`;
+    } else {
+      router.push(`/project/${rawProjectId}`);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center p-3 sm:p-4">
       {/* Header Móvil Adaptable */}
       <div className="w-full max-w-md flex items-center justify-between py-2 mb-3">
-        <Link href={`/project/${rawProjectId}`}>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="p-2 text-slate-400 hover:text-white"
-            aria-label="Volver al visor"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </Button>
-        </Link>
+        <button
+          onClick={handleGoToVisor}
+          className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors cursor-pointer"
+          aria-label="Volver al visor"
+        >
+          <ArrowLeft className="w-5 h-5" />
+        </button>
 
         <span className="text-xs font-mono font-bold text-sky-400 bg-sky-950/70 border border-sky-800/60 px-3 py-1 rounded-full">
           Código: {project.pairing_code}
         </span>
 
         <button
-          onClick={() => router.push(`/project/${rawProjectId}`)}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 active:scale-95 text-sky-400 hover:text-white rounded-xl text-xs font-semibold border border-slate-700 transition-all shadow-md"
+          onClick={handleGoToVisor}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 active:scale-95 text-sky-400 hover:text-white rounded-xl text-xs font-semibold border border-slate-700 transition-all shadow-md cursor-pointer"
         >
           <Grid className="w-4 h-4 text-sky-400" />
           <span>Ver Visor</span>

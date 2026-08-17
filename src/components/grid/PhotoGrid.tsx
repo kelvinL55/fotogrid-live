@@ -76,11 +76,11 @@ export function PhotoGrid({ project, onOpenMobileCamera, onReplaceItemTarget }: 
   const handleCompactGrid = async () => {
     setCompacting(true);
     try {
-      const { error } = await supabase.rpc('compact_project_positions', {
-        p_project_id: project.id,
+      const res = await fetch(`/api/projects/compact?projectId=${project.id}`, {
+        method: 'POST',
       });
-
-      if (error) throw error;
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Error al compactar cuadrícula');
 
       showToast('Cuadrícula compactada secuencialmente.', 'success');
       refreshItems();

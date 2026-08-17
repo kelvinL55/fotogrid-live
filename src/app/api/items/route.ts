@@ -45,7 +45,7 @@ export async function GET(request: Request) {
         const { data: urlData } = supabase.storage
           .from(APP_CONFIG.storage.bucketName)
           .getPublicUrl(item.storage_path);
-        publicUrl = urlData?.publicUrl;
+        publicUrl = urlData?.publicUrl ? `${urlData.publicUrl}?v=${item.version || 1}` : undefined;
       }
       return {
         ...item,
@@ -90,13 +90,34 @@ export async function POST(request: Request) {
     }
 
     const projectId = normalizeProjectId(itemData.project_id);
-    const itemId = itemData.id && isValidUUID(itemData.id) ? itemData.id : generateUUID();
-    let storagePath = itemData.storage_path || null;
+    const targetPosition = Number(itemData.position) || 1;
+
+    // 1. Comprobar si ya existe un item en esta casilla
+    const { data: existingItem } = await supabase
+      .from('project_items')
+      .select('*')
+      .eq('project_id', projectId)
+      .eq('position', targetPosition)
+      .maybeSingle();
+
+    const finalItemId = existingItem?.id || (itemData.id && isValidUUID(itemData.id) ? itemData.id : generateUUID());
+    const newVersion = (existingItem?.version || itemData.version || 0) + 1;
+
+    // 2. Si se está reemplazando y existía un archivo previo, eliminar el archivo antiguo de Storage
+    if (existingItem?.storage_path && uploadedFileBuffer) {
+      try {
+        await supabase.storage.from(APP_CONFIG.storage.bucketName).remove([existingItem.storage_path]);
+      } catch (_e) {
+        // No bloqueante
+      }
+    }
+
+    let storagePath = existingItem?.storage_path || null;
     let publicUrl: string | undefined = itemData.public_url;
 
-    // Subir archivo al bucket 'project-photos' de Supabase Storage
+    // 3. Subir el nuevo archivo al bucket 'project-photos' con path versionado
     if (uploadedFileBuffer) {
-      storagePath = `public/${projectId}/${itemId}.${fileExt}`;
+      storagePath = `public/${projectId}/${finalItemId}_v${newVersion}_${Date.now()}.${fileExt}`;
       const { error: uploadErr } = await supabase.storage
         .from(APP_CONFIG.storage.bucketName)
         .upload(storagePath, uploadedFileBuffer, {
@@ -110,32 +131,32 @@ export async function POST(request: Request) {
         const { data: urlData } = supabase.storage
           .from(APP_CONFIG.storage.bucketName)
           .getPublicUrl(storagePath);
-        publicUrl = urlData?.publicUrl;
+        publicUrl = urlData?.publicUrl ? `${urlData.publicUrl}?t=${Date.now()}` : undefined;
       }
     }
 
     const nowIso = new Date().toISOString();
     const dbRecord = {
-      id: itemId,
+      id: finalItemId,
       project_id: projectId,
-      position: Number(itemData.position) || 1,
+      position: targetPosition,
       status: itemData.status || 'active',
       storage_path: storagePath,
-      original_filename: itemData.original_filename || `${itemId}.${fileExt}`,
+      original_filename: itemData.original_filename || `${finalItemId}.${fileExt}`,
       mime_type: fileMimeType,
       file_size: itemData.file_size || (uploadedFileBuffer ? uploadedFileBuffer.length : null),
       width: itemData.width || null,
       height: itemData.height || null,
       captured_at: itemData.captured_at || nowIso,
-      uploaded_at: itemData.uploaded_at || nowIso,
+      uploaded_at: nowIso,
       updated_at: nowIso,
-      version: itemData.version || 1,
+      version: newVersion,
       error_message: null,
     };
 
     const { data: savedRecord, error: upsertErr } = await supabase
       .from('project_items')
-      .upsert(dbRecord)
+      .upsert(dbRecord, { onConflict: 'project_id,position' })
       .select()
       .single();
 
@@ -153,17 +174,19 @@ export async function POST(request: Request) {
       public_url: publicUrl || undefined,
     };
 
-    // Incrementar next_position en proyectos de forma segura
-    try {
-      await supabase
-        .from('projects')
-        .update({
-          next_position: (Number(itemData.position) || 1) + 1,
-          updated_at: nowIso,
-        })
-        .eq('id', projectId);
-    } catch (_e) {
-      // No bloqueante
+    // Incrementar next_position en proyectos solo si no es un reemplazo
+    if (!existingItem) {
+      try {
+        await supabase
+          .from('projects')
+          .update({
+            next_position: targetPosition + 1,
+            updated_at: nowIso,
+          })
+          .eq('id', projectId);
+      } catch (_e) {
+        // No bloqueante
+      }
     }
 
     return NextResponse.json({ item: resultItem });

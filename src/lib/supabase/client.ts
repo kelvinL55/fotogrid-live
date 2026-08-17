@@ -5,9 +5,22 @@ export function getSupabaseUrl(): string {
   return url.trim().replace(/\/+$/, '');
 }
 
+let clientInstance: ReturnType<typeof createBrowserClient> | undefined;
+
 export function createClient() {
-  return createBrowserClient(
-    getSupabaseUrl(),
-    (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '').trim()
-  );
+  if (typeof window === 'undefined') {
+    return createBrowserClient(
+      getSupabaseUrl(),
+      (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '').trim()
+    );
+  }
+
+  if (!clientInstance) {
+    clientInstance = createBrowserClient(
+      getSupabaseUrl(),
+      (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '').trim()
+    );
+  }
+
+  return clientInstance;
 }
