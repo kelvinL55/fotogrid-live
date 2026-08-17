@@ -51,34 +51,34 @@ export function GridItem({
   const [menuOpen, setMenuOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
-  const formattedPos = formatPositionNumber(item.position);
-  const isActive = item.status === 'active';
-  const isEmpty = item.status === 'empty';
-  const isUploading = item.status === 'uploading';
-  const isFailed = item.status === 'failed';
+  const formattedPos = formatPositionNumber(item?.position ?? 0);
+  const isActive = item?.status === 'active';
+  const isEmpty = item?.status === 'empty';
+  const isUploading = item?.status === 'uploading';
+  const isFailed = item?.status === 'failed';
 
   // Copiar imagen al portapapeles
   const handleCopy = async (e: React.MouseEvent) => {
     e.stopPropagation();
     setMenuOpen(false);
-    if (!item.public_url) return;
+    if (!item?.public_url) return;
 
     showToast('Copiando imagen al portapapeles...', 'info');
     const res = await copyImageToClipboard(item.public_url);
     showToast(res.message, res.success ? 'success' : 'error');
   };
 
-  // Descargar imagen individual con ceros a la izquierda
+  // Descargar imagen individual
   const handleDownload = async (e: React.MouseEvent) => {
     e.stopPropagation();
     setMenuOpen(false);
-    if (!item.public_url) return;
+    if (!item?.public_url) return;
 
     try {
-      const filename = generateDownloadFilename(project.name, item.position);
+      const filename = generateDownloadFilename(project?.name || 'FotoGrid', item.position ?? 1);
       await downloadSingleImage(item.public_url, filename);
       showToast(`Descargando ${filename}`, 'success');
-    } catch (err: any) {
+    } catch (_err) {
       showToast('Error al descargar la imagen.', 'error');
     }
   };
@@ -90,12 +90,10 @@ export function GridItem({
     setActionLoading(true);
 
     try {
-      // 1. Eliminar de Storage si existe
       if (item.storage_path) {
         await supabase.storage.from(APP_CONFIG.storage.bucketName).remove([item.storage_path]);
       }
 
-      // 2. Cambiar registro en Postgres a 'empty'
       const { error } = await supabase
         .from('project_items')
         .update({
@@ -111,7 +109,7 @@ export function GridItem({
 
       if (error) throw error;
 
-      showToast(`Casilla #${item.position} vaciada. La posición se conserva.`, 'success');
+      showToast(`Casilla #${item.position} vaciada.`, 'success');
       onRefresh();
     } catch (err: any) {
       showToast(err.message || 'Error al vaciar la casilla.', 'error');
@@ -127,23 +125,19 @@ export function GridItem({
     setActionLoading(true);
 
     try {
-      // 1. Eliminar archivo de Storage
       if (item.storage_path) {
         await supabase.storage.from(APP_CONFIG.storage.bucketName).remove([item.storage_path]);
       }
 
-      // 2. Eliminar fila de la base de datos
-      const { error: delError } = await supabase.from('project_items').delete().eq('id', item.id);
-      if (delError) throw delError;
+      await supabase.from('project_items').delete().eq('id', item.id);
 
-      // 3. Invocar RPC SQL transaccional para compactar
       const { error: rpcError } = await supabase.rpc('compact_project_positions', {
         p_project_id: project.id,
       });
 
       if (rpcError) throw rpcError;
 
-      showToast(`Fotografía eliminada y cuadrícula compactada secuencialmente.`, 'success');
+      showToast(`Fotografía eliminada y cuadrícula compactada.`, 'success');
       onRefresh();
     } catch (err: any) {
       showToast(err.message || 'Error al compactar posiciones.', 'error');
@@ -152,9 +146,8 @@ export function GridItem({
     }
   };
 
-  // Drag & drop handlers
   const handleDragStart = (e: React.DragEvent) => {
-    if (!item.public_url) return;
+    if (!item?.public_url) return;
     e.dataTransfer.setData('text/uri-list', item.public_url);
     e.dataTransfer.setData('text/plain', item.public_url);
     e.dataTransfer.effectAllowed = 'copy';
@@ -162,30 +155,30 @@ export function GridItem({
 
   return (
     <div
-      draggable={isActive && Boolean(item.public_url)}
+      draggable={isActive && Boolean(item?.public_url)}
       onDragStart={handleDragStart}
       onClick={() => {
         if (isMultiSelectMode && onToggleSelect) {
           onToggleSelect(item);
-        } else if (isActive && item.public_url) {
+        } else if (isActive && item?.public_url) {
           onOpenLightbox(item);
         } else if (isEmpty) {
           onReplaceItem(item);
         }
       }}
-      className={`group relative aspect-square bg-slate-900 border rounded-2xl overflow-hidden shadow-md transition-all duration-200 select-none cursor-pointer flex flex-col justify-between p-2.5 ${
+      className={`group relative aspect-square bg-slate-900 border rounded-xl sm:rounded-2xl overflow-hidden shadow-md transition-all duration-200 select-none cursor-pointer flex flex-col justify-between p-2 sm:p-2.5 ${
         isSelected
           ? 'border-sky-500 ring-2 ring-sky-500/50 bg-sky-950/20'
           : isLatest
-          ? 'border-emerald-400 ring-4 ring-emerald-400/40 shadow-emerald-500/30 animate-pulse bg-emerald-950/20'
+          ? 'border-emerald-400 ring-2 sm:ring-4 ring-emerald-400/40 shadow-emerald-500/30 animate-pulse bg-emerald-950/20'
           : isEmpty
           ? 'border-dashed border-slate-800 hover:border-slate-600 bg-slate-950/40'
           : 'border-slate-800 hover:border-slate-700 hover:shadow-xl'
       }`}
     >
       {/* Insignia de Posición Cronológica */}
-      <div className="flex items-center justify-between z-10">
-        <span className="font-mono font-bold text-xs bg-slate-950/80 backdrop-blur-md px-2 py-0.5 rounded-lg border border-slate-800 text-sky-400">
+      <div className="flex items-center justify-between z-10 w-full">
+        <span className="font-mono font-bold text-[10px] sm:text-xs bg-slate-950/85 backdrop-blur-md px-1.5 sm:px-2 py-0.5 rounded-md sm:rounded-lg border border-slate-800 text-sky-400">
           #{formattedPos}
         </span>
 
@@ -199,7 +192,7 @@ export function GridItem({
             className="text-sky-400 hover:text-sky-300 p-0.5"
             aria-label="Seleccionar casilla"
           >
-            {isSelected ? <CheckSquare className="w-5 h-5" /> : <Square className="w-5 h-5 text-slate-500" />}
+            {isSelected ? <CheckSquare className="w-4 h-4 sm:w-5 sm:h-5" /> : <Square className="w-4 h-4 sm:w-5 sm:h-5 text-slate-500" />}
           </button>
         )}
 
@@ -211,16 +204,16 @@ export function GridItem({
                 e.stopPropagation();
                 setMenuOpen(!menuOpen);
               }}
-              className="p-1 rounded-lg bg-slate-950/80 backdrop-blur-md text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+              className="p-1 rounded-md sm:rounded-lg bg-slate-950/85 backdrop-blur-md text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
               aria-label="Menú de opciones de casilla"
             >
-              <MoreVertical className="w-4 h-4" />
+              <MoreVertical className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
 
             {menuOpen && (
               <div
                 onClick={(e) => e.stopPropagation()}
-                className="absolute right-0 top-7 z-30 w-48 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl py-1 text-xs text-slate-200 animate-fade-in"
+                className="absolute right-0 top-7 z-30 w-44 sm:w-48 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl py-1 text-xs text-slate-200 animate-fade-in"
               >
                 {isActive && (
                   <>
@@ -248,7 +241,7 @@ export function GridItem({
                       className="w-full px-3 py-2 text-left hover:bg-slate-800 flex items-center gap-2"
                     >
                       <Download className="w-3.5 h-3.5 text-indigo-400" />
-                      Descargar original
+                      Descargar
                     </button>
 
                     <div className="my-1 border-t border-slate-800"></div>
@@ -272,7 +265,7 @@ export function GridItem({
                     className="w-full px-3 py-2 text-left hover:bg-slate-800 flex items-center gap-2 text-rose-300"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
-                    Dejar espacio vacío
+                    Dejar vacío
                   </button>
                 )}
 
@@ -304,27 +297,26 @@ export function GridItem({
           />
         </div>
       ) : isUploading ? (
-        <div className="absolute inset-0 flex flex-col items-center justify-center p-3 text-center bg-sky-950/20">
-          <Loader2 className="w-6 h-6 text-sky-400 animate-spin mb-1" />
-          <span className="text-[10px] text-sky-300 font-medium">Subiendo foto...</span>
+        <div className="absolute inset-0 flex flex-col items-center justify-center p-2 text-center bg-sky-950/20">
+          <Loader2 className="w-5 h-5 sm:w-6 sm:h-6 text-sky-400 animate-spin mb-1" />
+          <span className="text-[9px] sm:text-[10px] text-sky-300 font-medium">Subiendo...</span>
         </div>
       ) : isFailed ? (
-        <div className="absolute inset-0 flex flex-col items-center justify-center p-3 text-center bg-rose-950/20">
-          <AlertCircle className="w-6 h-6 text-rose-400 mb-1" />
-          <span className="text-[10px] text-rose-300 font-medium">Error al subir</span>
+        <div className="absolute inset-0 flex flex-col items-center justify-center p-2 text-center bg-rose-950/20">
+          <AlertCircle className="w-5 h-5 sm:w-6 sm:h-6 text-rose-400 mb-1" />
+          <span className="text-[9px] sm:text-[10px] text-rose-300 font-medium">Error</span>
         </div>
       ) : (
-        /* ESTADO VACÍO (ESPERANDO REEMPLAZO O SIGUIENTE CAPTURA) */
+        /* ESTADO VACÍO */
         <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-600 hover:text-sky-400 transition-colors p-2 text-center">
-          <PlusCircle className="w-7 h-7 mb-1" />
-          <span className="text-[11px] font-semibold">Espacio Vacío</span>
-          <span className="text-[9px] text-slate-500">Clic para rellenar</span>
+          <PlusCircle className="w-6 h-6 sm:w-7 sm:h-7 mb-1" />
+          <span className="text-[10px] sm:text-[11px] font-semibold">Vacío</span>
         </div>
       )}
 
       {/* Overlay inferior con timestamp */}
       {isActive && item.uploaded_at && (
-        <div className="z-10 bg-slate-950/80 backdrop-blur-md px-2 py-0.5 rounded-md text-[10px] text-slate-400 self-start border border-slate-800">
+        <div className="z-10 bg-slate-950/80 backdrop-blur-md px-1.5 sm:px-2 py-0.5 rounded text-[9px] sm:text-[10px] text-slate-400 self-start border border-slate-800">
           {new Date(item.uploaded_at).toLocaleTimeString('es-ES', {
             hour: '2-digit',
             minute: '2-digit',

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams, useParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
@@ -9,67 +9,51 @@ import { CameraCapture } from '@/components/camera/CameraCapture';
 import { UploadQueueManager } from '@/components/camera/UploadQueueManager';
 import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { useToast } from '@/components/ui/Toast';
+import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { normalizeProjectId } from '@/lib/utils/project';
 import { ArrowLeft, Grid } from 'lucide-react';
 
-export default function MobileCameraPage() {
+function MobileCameraContent() {
   const router = useRouter();
   const routeParams = useParams();
   const rawProjectId = (routeParams?.id as string) || 'session-live-default';
-  const projectId = normalizeProjectId(rawProjectId);
+  const projectId = useMemo(() => normalizeProjectId(rawProjectId), [rawProjectId]);
 
   const supabase = createClient();
   const searchParams = useSearchParams();
   const replaceItemId = searchParams?.get('replaceItemId');
-  const { showToast } = useToast();
 
-  const [project, setProject] = useState<Project | null>(null);
+  const [project, setProject] = useState<Project>(() => ({
+    id: projectId,
+    name: 'Mi Sesión FotoGrid en Vivo',
+    pairing_code: 'FG-8888',
+    next_position: 1,
+    preferred_density: 12,
+    status: 'active',
+    expires_at: null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    archived_at: null,
+    owner_id: '00000000-0000-0000-0000-000000000000',
+  }));
+
   const [replacementItem, setReplacementItem] = useState<ProjectItem | null>(null);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function loadProjectData() {
-      let foundProject: Project | null = null;
+    let isMounted = true;
 
+    async function loadProjectData() {
       try {
         const res = await fetch(`/api/projects?id=${rawProjectId}`);
         if (res.ok) {
           const json = await res.json();
-          if (json.project) foundProject = json.project;
+          if (json.project && isMounted) {
+            setProject(json.project);
+          }
         }
       } catch (_err) {
-        // Ignorar fallo de red
+        // Ignorar
       }
-
-      // Fallback a Supabase directo con UUID normalizado
-      if (!foundProject) {
-        try {
-          const { data } = await supabase
-            .from('projects')
-            .select('*')
-            .eq('id', projectId)
-            .maybeSingle();
-
-          if (data) foundProject = data;
-        } catch (_e) {
-          // Ignorar
-        }
-      }
-
-      // Si no está en Supabase, buscar en localStorage
-      if (!foundProject && typeof window !== 'undefined') {
-        const demoProjects: Project[] = JSON.parse(localStorage.getItem('demo_projects') || '[]');
-        foundProject = demoProjects.find((p) => p.id === rawProjectId || p.id === projectId) || null;
-      }
-
-      if (!foundProject) {
-        showToast('Proyecto no encontrado.', 'error');
-        router.push('/dashboard');
-        return;
-      }
-
-      setProject(foundProject);
 
       // Si existe replaceItemId, cargar sus datos
       if (replaceItemId) {
@@ -80,20 +64,20 @@ export default function MobileCameraPage() {
             .eq('id', replaceItemId)
             .maybeSingle();
 
-          if (itemData) setReplacementItem(itemData);
+          if (itemData && isMounted) setReplacementItem(itemData);
         } catch (_e) {
           // Ignorar
         }
       }
-
-      setLoading(false);
     }
 
     loadProjectData();
-  }, [rawProjectId, projectId, replaceItemId, supabase, router, showToast]);
+    return () => {
+      isMounted = false;
+    };
+  }, [rawProjectId, projectId, replaceItemId, supabase]);
 
   const handleUploadSuccess = async () => {
-    // Recargar datos del proyecto para actualizar contador next_position
     try {
       const res = await fetch(`/api/projects?id=${rawProjectId}`);
       if (res.ok) {
@@ -105,17 +89,6 @@ export default function MobileCameraPage() {
     }
     setReplacementItem(null);
   };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-950 p-4 sm:p-6 flex flex-col items-center justify-center gap-6">
-        <Skeleton className="h-12 w-full max-w-md rounded-xl" />
-        <Skeleton className="h-96 w-full max-w-md rounded-3xl" />
-      </div>
-    );
-  }
-
-  if (!project) return null;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center p-3 sm:p-4">
@@ -136,16 +109,13 @@ export default function MobileCameraPage() {
           Código: {project.pairing_code}
         </span>
 
-        <Link href={`/project/${rawProjectId}`}>
-          <Button
-            variant="secondary"
-            size="sm"
-            leftIcon={<Grid className="w-4 h-4 text-sky-400" />}
-            className="text-xs font-semibold"
-          >
-            Ver Visor
-          </Button>
-        </Link>
+        <button
+          onClick={() => router.push(`/project/${rawProjectId}`)}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 active:scale-95 text-sky-400 hover:text-white rounded-xl text-xs font-semibold border border-slate-700 transition-all shadow-md"
+        >
+          <Grid className="w-4 h-4 text-sky-400" />
+          <span>Ver Visor</span>
+        </button>
       </div>
 
       {/* Administrador de Cola sin Conexión */}
@@ -162,5 +132,19 @@ export default function MobileCameraPage() {
         onCancelReplacement={() => setReplacementItem(null)}
       />
     </div>
+  );
+}
+
+export default function MobileCameraPage() {
+  return (
+    <ErrorBoundary>
+      <Suspense fallback={
+        <div className="min-h-screen bg-slate-950 p-4 flex flex-col items-center justify-center">
+          <Skeleton className="h-96 w-full max-w-md rounded-3xl" />
+        </div>
+      }>
+        <MobileCameraContent />
+      </Suspense>
+    </ErrorBoundary>
   );
 }
