@@ -12,7 +12,6 @@ import {
   ChevronRight,
   Copy,
   Download,
-  Trash2,
   RefreshCw,
   Calendar,
   HardDrive,
@@ -38,7 +37,6 @@ export function LightboxModal({
   project,
   onNavigate,
   onReplaceItem,
-  onRefresh,
 }: LightboxModalProps) {
   const { showToast } = useToast();
 
@@ -85,24 +83,24 @@ export function LightboxModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/95 backdrop-blur-xl animate-fade-in text-white p-4 select-none">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/95 backdrop-blur-xl animate-fade-in text-white p-2 sm:p-4 select-none">
       {/* Botón Cerrar */}
       <button
         onClick={onClose}
-        className="absolute top-4 right-4 z-50 p-2.5 bg-slate-900/80 border border-slate-800 hover:bg-slate-800 rounded-full text-slate-300 hover:text-white transition-colors"
+        className="absolute top-3 right-3 sm:top-4 sm:right-4 z-50 p-2 sm:p-2.5 bg-slate-900/90 border border-slate-800 hover:bg-slate-800 rounded-full text-slate-300 hover:text-white transition-colors"
         aria-label="Cerrar visor"
       >
-        <X className="w-6 h-6" />
+        <X className="w-5 h-5 sm:w-6 sm:h-6" />
       </button>
 
       {/* Control Anterior */}
       {prevItem && (
         <button
           onClick={() => onNavigate(prevItem)}
-          className="absolute left-4 top-1/2 -translate-y-1/2 z-50 p-3 bg-slate-900/80 border border-slate-800 hover:bg-slate-800 rounded-full text-slate-300 hover:text-white transition-colors"
+          className="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 z-50 p-2 sm:p-3 bg-slate-900/80 border border-slate-800 hover:bg-slate-800 rounded-full text-slate-300 hover:text-white transition-colors"
           aria-label="Fotografía anterior"
         >
-          <ChevronLeft className="w-6 h-6" />
+          <ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" />
         </button>
       )}
 
@@ -110,80 +108,86 @@ export function LightboxModal({
       {nextItem && (
         <button
           onClick={() => onNavigate(nextItem)}
-          className="absolute right-4 top-1/2 -translate-y-1/2 z-50 p-3 bg-slate-900/80 border border-slate-800 hover:bg-slate-800 rounded-full text-slate-300 hover:text-white transition-colors"
+          className="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 z-50 p-2 sm:p-3 bg-slate-900/80 border border-slate-800 hover:bg-slate-800 rounded-full text-slate-300 hover:text-white transition-colors"
           aria-label="Siguiente fotografía"
         >
-          <ChevronRight className="w-6 h-6" />
+          <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6" />
         </button>
       )}
 
       {/* Área Central: Imagen y Metadatos */}
-      <div className="max-w-5xl w-full max-h-[90vh] flex flex-col items-center justify-between gap-4">
+      <div className="max-w-5xl w-full max-h-[92vh] flex flex-col items-center justify-between gap-2 sm:gap-4 px-2">
         {/* Header Metadatos */}
-        <div className="w-full flex flex-wrap items-center justify-between gap-4 px-2 py-1 bg-slate-900/80 border border-slate-800/80 rounded-2xl">
-          <div className="flex items-center gap-3">
-            <span className="font-mono font-bold text-sm bg-sky-600 px-3 py-1 rounded-xl text-white">
-              Fotografía #{formattedPos}
+        <div className="w-full flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 bg-slate-900/90 border border-slate-800/80 rounded-xl sm:rounded-2xl">
+          <div className="flex items-center gap-2">
+            <span className="font-mono font-bold text-xs sm:text-sm bg-sky-600 px-2.5 py-0.5 sm:py-1 rounded-lg text-white">
+              #{formattedPos}
             </span>
-            <span className="text-sm font-semibold text-slate-300 truncate max-w-[200px]">
+            <span className="text-xs sm:text-sm font-semibold text-slate-300 truncate max-w-[120px] sm:max-w-[200px]">
               {currentItem.original_filename || `Foto-${formattedPos}`}
             </span>
           </div>
 
-          <div className="flex items-center gap-4 text-xs text-slate-400">
+          <div className="flex items-center gap-2 sm:gap-4 text-[10px] sm:text-xs text-slate-400">
             {currentItem.uploaded_at && (
-              <div className="flex items-center gap-1.5">
+              <div className="hidden sm:flex items-center gap-1">
                 <Calendar className="w-3.5 h-3.5 text-slate-500" />
-                <span>{new Date(currentItem.uploaded_at).toLocaleString('es-ES')}</span>
+                <span>{new Date(currentItem.uploaded_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</span>
               </div>
             )}
             {currentItem.width && currentItem.height && (
-              <div className="flex items-center gap-1.5">
-                <Maximize2 className="w-3.5 h-3.5 text-slate-500" />
-                <span>{currentItem.width} × {currentItem.height} px</span>
+              <div className="flex items-center gap-1">
+                <Maximize2 className="w-3 h-3 text-slate-500" />
+                <span>{currentItem.width}×{currentItem.height}</span>
               </div>
             )}
-            <div className="flex items-center gap-1.5">
-              <HardDrive className="w-3.5 h-3.5 text-slate-500" />
+            <div className="flex items-center gap-1">
+              <HardDrive className="w-3 h-3 text-slate-500" />
               <span>{fileSizeKB}</span>
             </div>
           </div>
         </div>
 
         {/* Imagen principal */}
-        <div className="relative flex-1 w-full flex items-center justify-center min-h-0 overflow-hidden py-2">
+        <div className="relative flex-1 w-full flex items-center justify-center min-h-0 overflow-hidden py-1">
           <img
             src={currentItem.public_url}
             alt={`Fotografía ${formattedPos}`}
-            className="max-w-full max-h-[70vh] object-contain rounded-2xl shadow-2xl border border-slate-800"
+            className="max-w-full max-h-[65vh] sm:max-h-[70vh] object-contain rounded-xl sm:rounded-2xl shadow-2xl border border-slate-800"
           />
         </div>
 
         {/* Barra de Acciones */}
-        <div className="flex flex-wrap items-center justify-center gap-3 py-2 px-4 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl">
+        <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 py-1.5 sm:py-2 px-3 sm:px-4 bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl shadow-2xl">
           <Button
+            size="sm"
             variant="primary"
             onClick={handleCopy}
-            leftIcon={<Copy className="w-4 h-4" />}
+            leftIcon={<Copy className="w-3.5 h-3.5" />}
+            className="text-xs py-1.5"
           >
-            Copiar Imagen
+            Copiar
           </Button>
 
           <Button
+            size="sm"
             variant="secondary"
             onClick={handleDownload}
-            leftIcon={<Download className="w-4 h-4" />}
+            leftIcon={<Download className="w-3.5 h-3.5" />}
+            className="text-xs py-1.5"
           >
             Descargar
           </Button>
 
           <Button
+            size="sm"
             variant="outline"
             onClick={() => {
               onClose();
               onReplaceItem(currentItem);
             }}
-            leftIcon={<RefreshCw className="w-4 h-4 text-amber-400" />}
+            leftIcon={<RefreshCw className="w-3.5 h-3.5 text-amber-400" />}
+            className="text-xs py-1.5"
           >
             Reemplazar
           </Button>

@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useEffect, useState, use } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams, useParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Project, ProjectItem } from '@/lib/types';
 import { CameraCapture } from '@/components/camera/CameraCapture';
@@ -13,19 +13,15 @@ import { useToast } from '@/components/ui/Toast';
 import { normalizeProjectId } from '@/lib/utils/project';
 import { ArrowLeft, Grid } from 'lucide-react';
 
-export default function MobileCameraPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const resolvedParams = use(params);
-  const rawProjectId = resolvedParams.id;
+export default function MobileCameraPage() {
+  const router = useRouter();
+  const routeParams = useParams();
+  const rawProjectId = (routeParams?.id as string) || 'session-live-default';
   const projectId = normalizeProjectId(rawProjectId);
 
   const supabase = createClient();
-  const router = useRouter();
   const searchParams = useSearchParams();
-  const replaceItemId = searchParams.get('replaceItemId');
+  const replaceItemId = searchParams?.get('replaceItemId');
   const { showToast } = useToast();
 
   const [project, setProject] = useState<Project | null>(null);
@@ -112,7 +108,7 @@ export default function MobileCameraPage({
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 p-6 flex flex-col items-center justify-center gap-6">
+      <div className="min-h-screen bg-slate-950 p-4 sm:p-6 flex flex-col items-center justify-center gap-6">
         <Skeleton className="h-12 w-full max-w-md rounded-xl" />
         <Skeleton className="h-96 w-full max-w-md rounded-3xl" />
       </div>
@@ -122,21 +118,21 @@ export default function MobileCameraPage({
   if (!project) return null;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center p-4">
-      {/* Header Móvil */}
-      <div className="w-full max-w-md flex items-center justify-between py-3 mb-4">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center p-3 sm:p-4">
+      {/* Header Móvil Adaptable */}
+      <div className="w-full max-w-md flex items-center justify-between py-2 mb-3">
         <Link href={`/project/${rawProjectId}`}>
           <Button
             variant="ghost"
             size="sm"
             className="p-2 text-slate-400 hover:text-white"
-            aria-label="Volver a la cuadrícula del visor"
+            aria-label="Volver al visor"
           >
             <ArrowLeft className="w-5 h-5" />
           </Button>
         </Link>
 
-        <span className="text-xs font-mono font-bold text-sky-400 bg-sky-950/60 border border-sky-800/60 px-3 py-1 rounded-full">
+        <span className="text-xs font-mono font-bold text-sky-400 bg-sky-950/70 border border-sky-800/60 px-3 py-1 rounded-full">
           Código: {project.pairing_code}
         </span>
 
@@ -145,8 +141,9 @@ export default function MobileCameraPage({
             variant="secondary"
             size="sm"
             leftIcon={<Grid className="w-4 h-4 text-sky-400" />}
+            className="text-xs font-semibold"
           >
-            Visor
+            Ver Visor
           </Button>
         </Link>
       </div>
