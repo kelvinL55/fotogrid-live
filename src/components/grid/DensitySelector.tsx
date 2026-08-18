@@ -19,15 +19,15 @@ export function DensitySelector({ currentDensity, onChange }: DensitySelectorPro
   ];
 
   return (
-    <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 p-1 rounded-xl shadow-inner">
-      <LayoutGrid className="w-4 h-4 text-slate-500 ml-2 mr-1 shrink-0 hidden sm:block" />
+    <div className="flex items-center gap-0.5 sm:gap-1 bg-slate-950/60 border border-slate-800/80 p-0.5 sm:p-1 rounded-lg sm:rounded-xl shadow-inner shrink-0">
+      <LayoutGrid className="w-3.5 h-3.5 text-slate-500 ml-1.5 mr-1 shrink-0 hidden md:block" />
       {options.map((opt) => (
         <button
           key={opt.label}
           onClick={() => onChange(opt.value)}
-          className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all ${
+          className={`px-1.5 sm:px-2.5 py-0.5 sm:py-1 text-[10px] sm:text-xs font-semibold rounded-md sm:rounded-lg transition-all shrink-0 ${
             currentDensity === opt.value
-              ? 'bg-sky-600 text-white shadow-md'
+              ? 'bg-sky-600 text-white shadow-sm'
               : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
           }`}
         >

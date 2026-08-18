@@ -94,10 +94,10 @@ export function PhotoGrid({ project, onOpenMobileCamera, onReplaceItemTarget }: 
   const selectedItems = items.filter((i) => selectedItemIds.includes(i.id));
 
   return (
-    <div className="w-full flex flex-col gap-3 sm:gap-6">
-      {/* Barra de Control de la Cuadrícula */}
-      <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-4 p-3 sm:p-4 bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl shadow-xl">
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+    <div className="w-full flex flex-col gap-2 sm:gap-4">
+      {/* Barra de Control de la Cuadrícula Compacta */}
+      <div className="flex items-center justify-between gap-1.5 sm:gap-3 p-1.5 sm:p-2.5 md:p-3 bg-slate-900 border border-slate-800 rounded-lg sm:rounded-xl shadow-lg overflow-x-auto no-scrollbar">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           <DensitySelector currentDensity={density} onChange={setDensity} />
 
           <Button
@@ -108,16 +108,21 @@ export function PhotoGrid({ project, onOpenMobileCamera, onReplaceItemTarget }: 
               if (isMultiSelectMode) setSelectedItemIds([]);
             }}
             leftIcon={
-              isMultiSelectMode ? <CheckSquare className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <Square className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              isMultiSelectMode ? <CheckSquare className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> : <Square className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
             }
-            className="text-xs py-1.5"
+            className="text-[11px] sm:text-xs py-1 px-2 sm:py-1.5 sm:px-3 h-7 sm:h-8 shrink-0"
           >
             {isMultiSelectMode ? 'Cancelar' : 'Selección'}
           </Button>
 
           {isMultiSelectMode && (
-            <Button size="sm" variant="ghost" onClick={handleSelectAll} className="text-xs py-1.5">
-              {selectedItemIds.length === items.length ? 'Deseleccionar' : 'Todos'}
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={handleSelectAll}
+              className="text-[11px] sm:text-xs py-1 px-2 sm:py-1.5 sm:px-2.5 h-7 sm:h-8 shrink-0"
+            >
+              {selectedItemIds.length === items.length ? 'Deselec.' : 'Todos'}
             </Button>
           )}
 
@@ -126,41 +131,41 @@ export function PhotoGrid({ project, onOpenMobileCamera, onReplaceItemTarget }: 
             variant="ghost"
             isLoading={compacting}
             onClick={handleCompactGrid}
-            className="text-slate-400 hover:text-white text-xs py-1.5 hidden sm:inline-flex"
-            leftIcon={<Minimize2 className="w-3.5 h-3.5" />}
-            title="Compactar posiciones"
+            className="text-slate-400 hover:text-white text-[11px] sm:text-xs py-1 px-2 sm:py-1.5 sm:px-2.5 h-7 sm:h-8 hidden md:inline-flex shrink-0"
+            leftIcon={<Minimize2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
+            title="Compactar posiciones secuencialmente"
           >
             Compactar
           </Button>
         </div>
 
         {/* Indicador Realtime de Conexión */}
-        <div className="flex items-center gap-1.5 sm:gap-2">
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0 ml-auto pl-1">
           {connectionState === 'connected' && (
-            <div className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 bg-emerald-950/80 border border-emerald-800/80 rounded-full text-[11px] sm:text-xs text-emerald-300 font-medium shadow-sm">
-              <Wifi className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-400 animate-pulse" />
+            <div className="flex items-center gap-1 sm:gap-1.5 px-2 py-0.5 sm:px-2.5 sm:py-1 bg-emerald-950/80 border border-emerald-800/80 rounded-full text-[10px] sm:text-xs text-emerald-300 font-medium shadow-sm shrink-0">
+              <Wifi className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 text-emerald-400 animate-pulse" />
               <span>En Vivo</span>
             </div>
           )}
           {connectionState === 'reconnecting' && (
-            <div className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 bg-amber-950/80 border border-amber-800/80 rounded-full text-[11px] sm:text-xs text-amber-300 font-medium">
-              <RefreshCw className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-400 animate-spin" />
+            <div className="flex items-center gap-1 sm:gap-1.5 px-2 py-0.5 sm:px-2.5 sm:py-1 bg-amber-950/80 border border-amber-800/80 rounded-full text-[10px] sm:text-xs text-amber-300 font-medium shrink-0">
+              <RefreshCw className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 text-amber-400 animate-spin" />
               <span>Reconectando</span>
             </div>
           )}
           {connectionState === 'disconnected' && (
-            <div className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 bg-rose-950/80 border border-rose-800/80 rounded-full text-[11px] sm:text-xs text-rose-300 font-medium">
-              <WifiOff className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-rose-400" />
+            <div className="flex items-center gap-1 sm:gap-1.5 px-2 py-0.5 sm:px-2.5 sm:py-1 bg-rose-950/80 border border-rose-800/80 rounded-full text-[10px] sm:text-xs text-rose-300 font-medium shrink-0">
+              <WifiOff className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 text-rose-400" />
               <span>Desconectado</span>
             </div>
           )}
         </div>
       </div>
 
-      {/* Nota informativa en móviles / escritorio */}
-      <div className="flex items-center justify-between gap-2 px-3 sm:px-4 py-2 sm:py-2.5 bg-sky-950/30 border border-sky-900/40 rounded-xl text-[11px] sm:text-xs text-sky-300">
+      {/* Nota informativa en escritorio - Oculta en pantallas compactas para maximizar el visor del grid */}
+      <div className="hidden md:flex items-center justify-between gap-2 px-3 sm:px-4 py-2 bg-sky-950/30 border border-sky-900/40 rounded-xl text-xs text-sky-300">
         <div className="flex items-center gap-2">
-          <Info className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-sky-400 shrink-0" />
+          <Info className="w-4 h-4 text-sky-400 shrink-0" />
           <span>
             Las fotos tomadas aparecen automáticamente aquí en tiempo real.
           </span>
