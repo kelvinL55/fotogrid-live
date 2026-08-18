@@ -8,7 +8,7 @@ import { Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/Toast';
 import { createClient } from '@/lib/supabase/client';
 import { APP_CONFIG } from '@/lib/config';
-import { Download, Trash2, X, CheckSquare, AlertTriangle } from 'lucide-react';
+import { Download, Trash2, X, CheckSquare } from 'lucide-react';
 
 interface MultiSelectToolbarProps {
   selectedItems: ProjectItem[];
@@ -121,13 +121,13 @@ export function MultiSelectToolbar({
 
   return (
     <>
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/90 border border-slate-700/80 backdrop-blur-xl rounded-2xl shadow-2xl px-6 py-3 flex items-center gap-4 animate-fade-in text-white">
-        <div className="flex items-center gap-2 text-xs font-semibold text-sky-400 border-r border-slate-700 pr-4">
-          <CheckSquare className="w-4 h-4" />
-          <span>{selectedItems.length} seleccionadas</span>
+      <div className="fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 border border-slate-700/80 backdrop-blur-xl rounded-xl sm:rounded-2xl shadow-2xl px-3 sm:px-6 py-2 sm:py-3 flex items-center gap-2 sm:gap-4 animate-fade-in text-white max-w-[95vw]">
+        <div className="flex items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs font-semibold text-sky-400 border-r border-slate-700 pr-2 sm:pr-4 shrink-0">
+          <CheckSquare className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+          <span>{selectedItems.length} sel.</span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           <Button
             size="sm"
             variant="secondary"

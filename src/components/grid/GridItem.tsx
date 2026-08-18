@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { ProjectItem, Project } from '@/lib/types';
 import { formatPositionNumber, generateDownloadFilename, downloadSingleImage } from '@/lib/utils/download';
 import { copyImageToClipboard } from '@/lib/utils/clipboard';
+import { setupMultiImageDrag } from '@/lib/utils/dragDrop';
 import { useToast } from '@/components/ui/Toast';
 import { createClient } from '@/lib/supabase/client';
 import { APP_CONFIG } from '@/lib/config';
@@ -20,6 +21,8 @@ import {
   CheckSquare,
   Square,
   Minimize2,
+  CheckCheck,
+  RotateCcw,
 } from 'lucide-react';
 
 interface GridItemProps {
@@ -30,7 +33,11 @@ interface GridItemProps {
   onRefresh: () => void;
   isSelected?: boolean;
   isLatest?: boolean;
+  isCopied?: boolean;
   onToggleSelect?: (item: ProjectItem) => void;
+  onToggleCopied?: (itemId: string) => void;
+  onMarkCopied?: (itemIds: string | string[]) => void;
+  selectedItems?: ProjectItem[];
   isMultiSelectMode?: boolean;
 }
 
@@ -42,7 +49,11 @@ export function GridItem({
   onRefresh,
   isSelected = false,
   isLatest = false,
+  isCopied = false,
   onToggleSelect,
+  onToggleCopied,
+  onMarkCopied,
+  selectedItems = [],
   isMultiSelectMode = false,
 }: GridItemProps) {
   const supabase = createClient();
@@ -50,6 +61,7 @@ export function GridItem({
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const draggedItemsRef = useRef<ProjectItem[]>([]);
 
   const formattedPos = formatPositionNumber(item?.position ?? 0);
   const isActive = item?.status === 'active';
@@ -65,6 +77,9 @@ export function GridItem({
 
     showToast('Copiando imagen al portapapeles...', 'info');
     const res = await copyImageToClipboard(item.public_url);
+    if (res.success) {
+      onMarkCopied?.(item.id);
+    }
     showToast(res.message, res.success ? 'success' : 'error');
   };
 
@@ -146,15 +161,43 @@ export function GridItem({
 
   const handleDragStart = (e: React.DragEvent) => {
     if (!item?.public_url) return;
-    e.dataTransfer.setData('text/uri-list', item.public_url);
-    e.dataTransfer.setData('text/plain', item.public_url);
-    e.dataTransfer.effectAllowed = 'copy';
+
+    // Configurar payload de multi-drag o single drag
+    const draggedItems = setupMultiImageDrag({
+      event: e,
+      targetItem: item,
+      selectedItems,
+      projectName: project?.name || 'FotoGrid',
+    });
+
+    draggedItemsRef.current = draggedItems;
+
+    // Aviso informativo si la imagen (o alguna seleccionada) ya fue transferida previamente
+    const hasCopiedItem = draggedItems.some((i) => (i.id === item.id ? isCopied : false));
+    if (hasCopiedItem || isCopied) {
+      showToast(
+        draggedItems.length > 1
+          ? 'Aviso: Algunas de las imágenes seleccionadas ya fueron transferidas previamente.'
+          : 'Aviso: Esta imagen ya fue transferida previamente.',
+        'info'
+      );
+    }
+  };
+
+  const handleDragEnd = (_e: React.DragEvent) => {
+    // Al soltarse o transferirse a otra app externa, marcar como copiadas
+    const dragged = draggedItemsRef.current;
+    if (dragged.length > 0) {
+      onMarkCopied?.(dragged.map((i) => i.id));
+    }
+    draggedItemsRef.current = [];
   };
 
   return (
     <div
       draggable={isActive && Boolean(item?.public_url)}
       onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
       onClick={() => {
         if (isMultiSelectMode && onToggleSelect) {
           onToggleSelect(item);
@@ -169,16 +212,36 @@ export function GridItem({
           ? 'border-sky-500 ring-2 ring-sky-500/50 bg-sky-950/20'
           : isLatest
           ? 'border-emerald-400 ring-2 sm:ring-4 ring-emerald-400/40 shadow-emerald-500/30 animate-pulse bg-emerald-950/20'
+          : isCopied
+          ? 'border-amber-500/70 hover:border-amber-400 shadow-amber-500/10 opacity-85 hover:opacity-100 bg-amber-950/10'
           : isEmpty
           ? 'border-dashed border-slate-800 hover:border-slate-600 bg-slate-950/40'
           : 'border-slate-800 hover:border-slate-700 hover:shadow-xl'
       }`}
     >
-      {/* Insignia de Posición Cronológica */}
-      <div className="flex items-center justify-between z-10 w-full">
-        <span className="font-mono font-bold text-[10px] sm:text-xs bg-slate-950/85 backdrop-blur-md px-1.5 sm:px-2 py-0.5 rounded-md sm:rounded-lg border border-slate-800 text-sky-400">
-          #{formattedPos}
-        </span>
+      {/* Insignia de Posición Cronológica y Badges */}
+      <div className="flex items-center justify-between z-10 w-full gap-1">
+        <div className="flex items-center gap-1 shrink-0">
+          <span className="font-mono font-bold text-[10px] sm:text-xs bg-slate-950/85 backdrop-blur-md px-1.5 sm:px-2 py-0.5 rounded-md sm:rounded-lg border border-slate-800 text-sky-400">
+            #{formattedPos}
+          </span>
+
+          {/* Badge Interactivo de Ya Copiada / Arrastrada */}
+          {isActive && isCopied && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleCopied?.(item.id);
+                showToast(`Marca de copiado removida (#${formattedPos})`, 'info');
+              }}
+              title="Imagen transferida previamente. Clic para desmarcar."
+              className="flex items-center gap-1 bg-amber-950/90 hover:bg-amber-900 text-amber-300 border border-amber-600/70 px-1.5 py-0.5 rounded-md text-[9px] sm:text-[10px] font-semibold transition-all shadow-sm active:scale-95"
+            >
+              <CheckCheck className="w-3 h-3 text-amber-400 shrink-0" />
+              <span className="hidden xs:inline">Copiada</span>
+            </button>
+          )}
+        </div>
 
         {/* Checkbox Selección Múltiple */}
         {isMultiSelectMode && onToggleSelect && (
@@ -211,7 +274,7 @@ export function GridItem({
             {menuOpen && (
               <div
                 onClick={(e) => e.stopPropagation()}
-                className="absolute right-0 top-7 z-30 w-44 sm:w-48 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl py-1 text-xs text-slate-200 animate-fade-in"
+                className="absolute right-0 top-7 z-30 w-44 sm:w-52 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl py-1 text-xs text-slate-200 animate-fade-in"
               >
                 {isActive && (
                   <>
@@ -240,6 +303,18 @@ export function GridItem({
                     >
                       <Download className="w-3.5 h-3.5 text-indigo-400" />
                       Descargar
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setMenuOpen(false);
+                        onToggleCopied?.(item.id);
+                        showToast(isCopied ? 'Marca de copiado removida' : 'Marcada como copiada', 'info');
+                      }}
+                      className="w-full px-3 py-2 text-left hover:bg-slate-800 flex items-center gap-2 text-amber-400"
+                    >
+                      {isCopied ? <RotateCcw className="w-3.5 h-3.5" /> : <CheckCheck className="w-3.5 h-3.5" />}
+                      {isCopied ? 'Desmarcar como copiada' : 'Marcar como copiada'}
                     </button>
 
                     <div className="my-1 border-t border-slate-800"></div>
@@ -324,3 +399,4 @@ export function GridItem({
     </div>
   );
 }
+

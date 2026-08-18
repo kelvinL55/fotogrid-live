@@ -27,6 +27,7 @@ interface LightboxModalProps {
   onNavigate: (item: ProjectItem) => void;
   onReplaceItem: (item: ProjectItem) => void;
   onRefresh: () => void;
+  onMarkCopied?: (itemId: string) => void;
 }
 
 export function LightboxModal({
@@ -37,6 +38,7 @@ export function LightboxModal({
   project,
   onNavigate,
   onReplaceItem,
+  onMarkCopied,
 }: LightboxModalProps) {
   const { showToast } = useToast();
 
@@ -73,6 +75,9 @@ export function LightboxModal({
   const handleCopy = async () => {
     showToast('Copiando imagen...', 'info');
     const res = await copyImageToClipboard(currentItem.public_url!);
+    if (res.success) {
+      onMarkCopied?.(currentItem.id);
+    }
     showToast(res.message, res.success ? 'success' : 'error');
   };
 

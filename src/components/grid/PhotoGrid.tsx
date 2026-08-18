@@ -1,8 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Project, ProjectItem, GridDensity } from '@/lib/types';
 import { useProjectRealtime } from '@/hooks/useProjectRealtime';
+import { useCopiedItems } from '@/lib/hooks/useCopiedItems';
+import { preloadItemsFiles } from '@/lib/utils/dragDrop';
 import { GridItem } from './GridItem';
 import { DensitySelector } from './DensitySelector';
 import { LightboxModal } from './LightboxModal';
@@ -21,6 +23,7 @@ import {
   Grid as GridIcon,
   Minimize2,
   Camera,
+  RotateCcw,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -31,16 +34,23 @@ interface PhotoGridProps {
 }
 
 export function PhotoGrid({ project, onOpenMobileCamera, onReplaceItemTarget }: PhotoGridProps) {
-  const supabase = createClient();
   const { showToast } = useToast();
 
   const { items, loading, connectionState, latestPhotoId, refreshItems } = useProjectRealtime(project.id);
+  const { isCopied, markAsCopied, unmarkAsCopied, clearAllCopied, copiedCount } = useCopiedItems(project.id);
 
   const [density, setDensity] = useState<GridDensity>('auto');
   const [selectedLightboxItem, setSelectedLightboxItem] = useState<ProjectItem | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
   const [compacting, setCompacting] = useState(false);
+
+  // Precargar en segundo plano los Files de las imágenes para que estén listas síncronamente al arrastrar
+  useEffect(() => {
+    if (items.length > 0) {
+      preloadItemsFiles(items, project.name);
+    }
+  }, [items, project.name]);
 
   // Mapear densidad a clases Tailwind para cuadrícula responsiva móvil y escritorio
   const getGridClass = () => {
@@ -137,6 +147,21 @@ export function PhotoGrid({ project, onOpenMobileCamera, onReplaceItemTarget }: 
           >
             Compactar
           </Button>
+
+          {/* Botón para limpiar marcas de copiado si existen */}
+          {copiedCount > 0 && (
+            <button
+              onClick={() => {
+                clearAllCopied();
+                showToast('Marcas de copiado eliminadas.', 'info');
+              }}
+              title="Limpiar todas las marcas de imágenes copiadas en esta sesión"
+              className="flex items-center gap-1 text-[10px] sm:text-xs text-amber-400 hover:text-amber-200 bg-amber-950/40 hover:bg-amber-950/80 border border-amber-800/60 px-2 py-1 rounded-lg transition-all active:scale-95 shrink-0"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>{copiedCount} transferida{copiedCount > 1 ? 's' : ''} (Limpiar)</span>
+            </button>
+          )}
         </div>
 
         {/* Indicador Realtime de Conexión */}
@@ -167,7 +192,7 @@ export function PhotoGrid({ project, onOpenMobileCamera, onReplaceItemTarget }: 
         <div className="flex items-center gap-2">
           <Info className="w-4 h-4 text-sky-400 shrink-0" />
           <span>
-            Las fotos tomadas aparecen automáticamente aquí en tiempo real.
+            Las fotos tomadas aparecen automáticamente aquí en tiempo real. Puedes arrastrar una o varias fotos directamente hacia ChatGPT u otras aplicaciones.
           </span>
         </div>
 
@@ -219,7 +244,11 @@ export function PhotoGrid({ project, onOpenMobileCamera, onReplaceItemTarget }: 
               onRefresh={refreshItems}
               isSelected={selectedItemIds.includes(item.id)}
               isLatest={latestPhotoId === item.id}
+              isCopied={isCopied(item.id)}
               onToggleSelect={handleToggleSelect}
+              onToggleCopied={(id) => (isCopied(id) ? unmarkAsCopied(id) : markAsCopied(id))}
+              onMarkCopied={markAsCopied}
+              selectedItems={selectedItems}
               isMultiSelectMode={isMultiSelectMode}
             />
           ))}
@@ -236,6 +265,7 @@ export function PhotoGrid({ project, onOpenMobileCamera, onReplaceItemTarget }: 
         onNavigate={setSelectedLightboxItem}
         onReplaceItem={onReplaceItemTarget}
         onRefresh={refreshItems}
+        onMarkCopied={markAsCopied}
       />
 
       {/* Barra de Acciones de Selección Múltiple */}
@@ -248,3 +278,4 @@ export function PhotoGrid({ project, onOpenMobileCamera, onReplaceItemTarget }: 
     </div>
   );
 }
+
