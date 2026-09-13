@@ -245,11 +245,12 @@ export function GridItem({
           : 'border-slate-800 hover:border-slate-700 hover:shadow-xl'
       }`}
     >
-      {/* Insignia de Posición Cronológica y Badges */}
-      <div className="flex items-center justify-between z-10 w-full gap-1">
-        <div className="flex items-center gap-1 shrink-0">
+      {/* Insignia de Posición Cronológica y Badges en la parte superior */}
+      <div className="flex items-start justify-between z-10 w-full gap-1">
+        {/* Lado Izquierdo: Número de imagen y debajo el check de verificado */}
+        <div className="flex flex-col items-start gap-0.5 sm:gap-1 shrink-0">
           <span
-            className={`font-mono font-bold bg-slate-950/85 backdrop-blur-md border border-slate-800 text-sky-400 shrink-0 ${
+            className={`font-mono font-bold bg-slate-950/90 backdrop-blur-md border border-slate-800 text-sky-400 shrink-0 shadow-sm ${
               isDenseGrid
                 ? 'text-[8px] sm:text-[9px] px-1 py-0.2 rounded'
                 : 'text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-md sm:rounded-lg'
@@ -258,85 +259,80 @@ export function GridItem({
             #{formattedPos}
           </span>
 
-          {/* Badge Interactivo de Ya Copiada / Arrastrada */}
+          {/* Badge Interactivo de Ya Copiada / Verificada (Debajo del número) */}
           {isActive && isCopied && (
-            isDenseGrid ? (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggleCopied?.(item.id);
-                  showToast(`Marca de copiado removida (#${formattedPos})`, 'info');
-                }}
-                title="Imagen ya transferida. Clic para desmarcar."
-                className="flex items-center justify-center w-3.5 h-3.5 sm:w-4 sm:h-4 rounded bg-amber-950/90 border border-amber-500/80 text-amber-400 hover:bg-amber-900 transition-colors shrink-0"
-              >
-                <CheckCheck className="w-2.5 h-2.5" />
-              </button>
-            ) : (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggleCopied?.(item.id);
-                  showToast(`Marca de copiado removida (#${formattedPos})`, 'info');
-                }}
-                title="Imagen transferida previamente. Clic para desmarcar."
-                className="flex items-center gap-1 bg-amber-950/90 hover:bg-amber-900 text-amber-300 border border-amber-600/70 px-1.5 py-0.5 rounded-md text-[9px] sm:text-[10px] font-semibold transition-all shadow-sm active:scale-95"
-              >
-                <CheckCheck className="w-3 h-3 text-amber-400 shrink-0" />
-                <span className="hidden xs:inline">Copiada</span>
-              </button>
-            )
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleCopied?.(item.id);
+                showToast(`Marca de copiado removida (#${formattedPos})`, 'info');
+              }}
+              title="Imagen transferida previamente. Clic para desmarcar."
+              className={`flex items-center gap-0.5 bg-amber-950/95 hover:bg-amber-900 text-amber-300 border border-amber-600/80 rounded-md transition-all shadow-md active:scale-95 shrink-0 ${
+                isDenseGrid
+                  ? 'p-0.5 text-[8px]'
+                  : 'px-1 sm:px-1.5 py-0.5 text-[9px] sm:text-[10px] font-semibold'
+              }`}
+            >
+              <CheckCheck className={`${isDenseGrid ? 'w-2.5 h-2.5' : 'w-3 h-3'} text-amber-400 shrink-0`} />
+              {!isDenseGrid && <span className="hidden xl:inline text-[9px]">Copiada</span>}
+            </button>
           )}
         </div>
 
-        {/* Checkbox Selección Múltiple */}
-        {isMultiSelectMode && onToggleSelect && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleSelect(item);
-            }}
-            className="text-sky-400 hover:text-sky-300 p-0.5"
-            aria-label="Seleccionar casilla"
-          >
-            {isSelected ? <CheckSquare className="w-4 h-4 sm:w-5 sm:h-5" /> : <Square className="w-4 h-4 sm:w-5 sm:h-5 text-slate-500" />}
-          </button>
-        )}
-
-        {/* Botón de Acción Principal: BOTÓN DIRECTO DE COPIAR (1 solo toque para Gemini/DeepSeek) */}
-        {!isMultiSelectMode && (
-          <div className="relative shrink-0">
-            {isActive && item.public_url ? (
-              <button
-                onClick={handleCopy}
-                title="Copiar imagen al portapapeles para pegar en Gemini o DeepSeek (Ctrl+V)"
-                className={`p-1 sm:p-1.5 rounded-md backdrop-blur-md transition-all active:scale-90 shrink-0 border z-10 cursor-pointer ${
-                  copiedRecently
-                    ? 'bg-emerald-600 text-white border-emerald-400 shadow-lg shadow-emerald-500/50 ring-2 ring-emerald-400/50'
-                    : 'bg-slate-950/85 text-sky-400 hover:text-white hover:bg-sky-600 border-slate-800 shadow'
-                }`}
-                aria-label="Copiar imagen directamente"
-              >
-                {copiedRecently ? (
-                  <Check className="w-3.5 h-3.5 text-white animate-bounce" />
-                ) : (
-                  <Copy className="w-3.5 h-3.5" />
-                )}
-              </button>
-            ) : (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setMenuOpen(true);
-                }}
-                className="p-1 rounded-md bg-slate-950/85 backdrop-blur-md text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
-                aria-label="Opciones de casilla"
-              >
-                <MoreVertical className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-        )}
+        {/* Lado Derecho: Checkbox Selección Múltiple o Botón de Copiar */}
+        <div className="flex items-center gap-1 shrink-0">
+          {/* Checkbox Selección Múltiple */}
+          {isMultiSelectMode && onToggleSelect ? (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleSelect(item);
+              }}
+              className="text-sky-400 hover:text-sky-300 p-0.5 bg-slate-950/85 rounded-md border border-slate-800"
+              aria-label="Seleccionar casilla"
+            >
+              {isSelected ? <CheckSquare className="w-4 h-4 sm:w-5 sm:h-5" /> : <Square className="w-4 h-4 sm:w-5 sm:h-5 text-slate-500" />}
+            </button>
+          ) : (
+            /* Botón de Acción Principal: BOTÓN DIRECTO DE COPIAR (Siempre visible en Web y Móvil, y re-copiable) */
+            <div className="relative shrink-0">
+              {isActive && item.public_url ? (
+                <button
+                  onClick={handleCopy}
+                  title="Copiar imagen al portapapeles para pegar en Gemini o DeepSeek (Ctrl+V)"
+                  className={`rounded-md backdrop-blur-md transition-all active:scale-90 shrink-0 border z-10 cursor-pointer shadow-md flex items-center justify-center ${
+                    isDenseGrid ? 'p-1' : 'p-1 sm:p-1.5'
+                  } ${
+                    copiedRecently
+                      ? 'bg-emerald-600 text-white border-emerald-400 shadow-lg shadow-emerald-500/50 ring-2 ring-emerald-400/50'
+                      : isCopied
+                      ? 'bg-amber-950/90 text-amber-300 hover:text-white hover:bg-amber-600 border-amber-600/70 hover:border-amber-400'
+                      : 'bg-slate-950/90 text-sky-400 hover:text-white hover:bg-sky-600 border-slate-700'
+                  }`}
+                  aria-label="Copiar imagen directamente"
+                >
+                  {copiedRecently ? (
+                    <Check className={isDenseGrid ? 'w-2.5 h-2.5 text-white animate-bounce' : 'w-3.5 h-3.5 text-white animate-bounce'} />
+                  ) : (
+                    <Copy className={isDenseGrid ? 'w-2.5 h-2.5' : 'w-3.5 h-3.5'} />
+                  )}
+                </button>
+              ) : (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMenuOpen(true);
+                  }}
+                  className="p-1 rounded-md bg-slate-950/85 backdrop-blur-md text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                  aria-label="Opciones de casilla"
+                >
+                  <MoreVertical className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* MODAL FLOTANTE DE OPCIONES (NUNCA SE RECORTA POR CELDAS NI BORDES) */}
