@@ -15,8 +15,12 @@ describe('Multi-drag & drop payload preparation', () => {
     file_size: 1024,
     width: 800,
     height: 600,
+    captured_at: new Date().toISOString(),
     created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
     uploaded_at: new Date().toISOString(),
+    version: 1,
+    error_message: null,
   };
 
   const mockItem2: ProjectItem = {
@@ -31,8 +35,12 @@ describe('Multi-drag & drop payload preparation', () => {
     file_size: 2048,
     width: 800,
     height: 600,
+    captured_at: new Date().toISOString(),
     created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
     uploaded_at: new Date().toISOString(),
+    version: 1,
+    error_message: null,
   };
 
   const mockItem3Empty: ProjectItem = {
@@ -40,15 +48,19 @@ describe('Multi-drag & drop payload preparation', () => {
     project_id: 'proj-1',
     position: 3,
     status: 'empty',
-    public_url: null,
+    public_url: undefined,
     storage_path: null,
     original_filename: null,
     mime_type: null,
     file_size: null,
     width: null,
     height: null,
+    captured_at: null,
     created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
     uploaded_at: null,
+    version: 1,
+    error_message: null,
   };
 
   it('Debe transferir una sola imagen cuando no hay selección múltiple activa', () => {

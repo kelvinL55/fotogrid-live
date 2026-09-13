@@ -145,9 +145,9 @@ export default function ProjectViewerPage() {
                   variant="primary"
                   size="sm"
                   leftIcon={<Camera className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
-                  className="text-xs sm:text-sm font-semibold py-1 px-2.5 sm:py-1.5 sm:px-3"
+                  className="text-xs sm:text-sm font-semibold py-1 px-2.5 sm:py-1.5 sm:px-3 shadow-md shadow-sky-600/30"
                 >
-                  <span className="hidden sm:inline">Modo</span> Cámara
+                  <span>Modo Fotografía</span>
                 </Button>
               </Link>
             </div>
@@ -162,15 +162,15 @@ export default function ProjectViewerPage() {
           />
         </main>
 
-        {/* BOTÓN FLOTANTE (FAB) PARA MÓVIL: ACCESO INSTANTÁNEO A LA CÁMARA */}
+        {/* BOTÓN FLOTANTE (FAB) PARA MÓVIL: ACCESO INSTANTÁNEO AL MODO FOTOGRAFÍA */}
         <div className="fixed bottom-4 right-4 z-40 sm:hidden animate-fade-in">
           <Link href={`/project/${rawProjectId}/camera`}>
             <button
               className="flex items-center gap-2 px-5 py-3.5 bg-gradient-to-r from-sky-500 to-sky-600 active:scale-95 text-white font-bold text-sm rounded-full shadow-2xl shadow-sky-500/50 border border-sky-300/40"
-              aria-label="Abrir cámara móvil"
+              aria-label="Abrir modo fotografía"
             >
               <Camera className="w-5 h-5 text-white animate-pulse" />
-              <span>Tomar Foto</span>
+              <span>Modo Fotografía</span>
             </button>
           </Link>
         </div>

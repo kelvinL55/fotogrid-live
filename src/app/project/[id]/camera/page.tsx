@@ -100,15 +100,20 @@ function MobileCameraContent() {
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center p-3 sm:p-4">
       {/* Header Móvil Adaptable */}
       <div className="w-full max-w-md flex items-center justify-between py-2 mb-3">
-        <button
-          onClick={handleGoToVisor}
-          className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors cursor-pointer"
-          aria-label="Volver al visor"
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleGoToVisor}
+            className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors cursor-pointer"
+            aria-label="Volver al visor"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <span className="text-xs font-bold text-white tracking-tight hidden xs:inline">
+            Modo Fotografía
+          </span>
+        </div>
 
-        <span className="text-xs font-mono font-bold text-sky-400 bg-sky-950/70 border border-sky-800/60 px-3 py-1 rounded-full">
+        <span className="text-[11px] sm:text-xs font-mono font-bold text-sky-400 bg-sky-950/70 border border-sky-800/60 px-2.5 sm:px-3 py-1 rounded-full">
           Código: {project.pairing_code}
         </span>
 

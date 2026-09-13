@@ -233,12 +233,13 @@ export function PhotoGrid({ project, onOpenMobileCamera, onReplaceItemTarget }: 
           </div>
         </div>
       ) : (
-        <div className={`grid ${getGridClass()} gap-2 sm:gap-3`}>
+        <div className={`grid ${getGridClass()} ${density === 20 ? 'gap-1 sm:gap-1.5' : density === 15 ? 'gap-1.5 sm:gap-2' : 'gap-2 sm:gap-3'}`}>
           {items.map((item) => (
             <GridItem
               key={item.id}
               item={item}
               project={project}
+              density={density}
               onOpenLightbox={setSelectedLightboxItem}
               onReplaceItem={onReplaceItemTarget}
               onRefresh={refreshItems}

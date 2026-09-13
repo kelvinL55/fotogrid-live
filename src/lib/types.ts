@@ -51,6 +51,7 @@ export interface PendingUpload {
   retry_count: number;
   status: 'pending' | 'uploading' | 'failed';
   error_message?: string;
+  preview_url?: string;
 }
 
 export type GridDensity = 6 | 10 | 15 | 20 | 'auto';

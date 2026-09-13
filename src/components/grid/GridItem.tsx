@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef } from 'react';
-import { ProjectItem, Project } from '@/lib/types';
+import { ProjectItem, Project, GridDensity } from '@/lib/types';
 import { formatPositionNumber, generateDownloadFilename, downloadSingleImage } from '@/lib/utils/download';
 import { copyImageToClipboard } from '@/lib/utils/clipboard';
 import { setupMultiImageDrag } from '@/lib/utils/dragDrop';
@@ -23,11 +23,13 @@ import {
   Minimize2,
   CheckCheck,
   RotateCcw,
+  Check,
 } from 'lucide-react';
 
 interface GridItemProps {
   item: ProjectItem;
   project: Project;
+  density?: GridDensity;
   onOpenLightbox: (item: ProjectItem) => void;
   onReplaceItem: (item: ProjectItem) => void;
   onRefresh: () => void;
@@ -44,6 +46,7 @@ interface GridItemProps {
 export function GridItem({
   item,
   project,
+  density = 'auto',
   onOpenLightbox,
   onReplaceItem,
   onRefresh,
@@ -61,8 +64,10 @@ export function GridItem({
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [copiedRecently, setCopiedRecently] = useState(false);
   const draggedItemsRef = useRef<ProjectItem[]>([]);
 
+  const isDenseGrid = density === 20;
   const formattedPos = formatPositionNumber(item?.position ?? 0);
   const isActive = item?.status === 'active';
   const isEmpty = item?.status === 'empty';
@@ -75,12 +80,15 @@ export function GridItem({
     setMenuOpen(false);
     if (!item?.public_url) return;
 
-    showToast('Copiando imagen al portapapeles...', 'info');
     const res = await copyImageToClipboard(item.public_url);
     if (res.success) {
+      setCopiedRecently(true);
+      setTimeout(() => setCopiedRecently(false), 1500);
       onMarkCopied?.(item.id);
+      showToast(res.message, 'success');
+    } else {
+      showToast(res.message, 'error');
     }
-    showToast(res.message, res.success ? 'success' : 'error');
   };
 
   // Descargar imagen individual
@@ -198,6 +206,10 @@ export function GridItem({
       draggable={isActive && Boolean(item?.public_url)}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setMenuOpen(true);
+      }}
       onClick={() => {
         if (isMultiSelectMode && onToggleSelect) {
           onToggleSelect(item);
@@ -207,7 +219,11 @@ export function GridItem({
           onReplaceItem(item);
         }
       }}
-      className={`group relative aspect-square bg-slate-900 border rounded-xl sm:rounded-2xl overflow-hidden shadow-md transition-all duration-200 select-none cursor-pointer flex flex-col justify-between p-2 sm:p-2.5 ${
+      className={`group relative aspect-square bg-slate-900 border rounded-xl sm:rounded-2xl transition-all duration-200 select-none cursor-pointer flex flex-col justify-between ${
+        menuOpen ? 'overflow-visible z-30' : 'overflow-hidden shadow-md'
+      } ${
+        isDenseGrid ? 'p-1 sm:p-1.5' : 'p-2 sm:p-2.5'
+      } ${
         isSelected
           ? 'border-sky-500 ring-2 ring-sky-500/50 bg-sky-950/20'
           : isLatest
@@ -222,24 +238,44 @@ export function GridItem({
       {/* Insignia de Posición Cronológica y Badges */}
       <div className="flex items-center justify-between z-10 w-full gap-1">
         <div className="flex items-center gap-1 shrink-0">
-          <span className="font-mono font-bold text-[10px] sm:text-xs bg-slate-950/85 backdrop-blur-md px-1.5 sm:px-2 py-0.5 rounded-md sm:rounded-lg border border-slate-800 text-sky-400">
+          <span
+            className={`font-mono font-bold bg-slate-950/85 backdrop-blur-md border border-slate-800 text-sky-400 shrink-0 ${
+              isDenseGrid
+                ? 'text-[8px] sm:text-[9px] px-1 py-0.2 rounded'
+                : 'text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-md sm:rounded-lg'
+            }`}
+          >
             #{formattedPos}
           </span>
 
           {/* Badge Interactivo de Ya Copiada / Arrastrada */}
           {isActive && isCopied && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggleCopied?.(item.id);
-                showToast(`Marca de copiado removida (#${formattedPos})`, 'info');
-              }}
-              title="Imagen transferida previamente. Clic para desmarcar."
-              className="flex items-center gap-1 bg-amber-950/90 hover:bg-amber-900 text-amber-300 border border-amber-600/70 px-1.5 py-0.5 rounded-md text-[9px] sm:text-[10px] font-semibold transition-all shadow-sm active:scale-95"
-            >
-              <CheckCheck className="w-3 h-3 text-amber-400 shrink-0" />
-              <span className="hidden xs:inline">Copiada</span>
-            </button>
+            isDenseGrid ? (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleCopied?.(item.id);
+                  showToast(`Marca de copiado removida (#${formattedPos})`, 'info');
+                }}
+                title="Imagen ya transferida. Clic para desmarcar."
+                className="flex items-center justify-center w-3.5 h-3.5 sm:w-4 sm:h-4 rounded bg-amber-950/90 border border-amber-500/80 text-amber-400 hover:bg-amber-900 transition-colors shrink-0"
+              >
+                <CheckCheck className="w-2.5 h-2.5" />
+              </button>
+            ) : (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleCopied?.(item.id);
+                  showToast(`Marca de copiado removida (#${formattedPos})`, 'info');
+                }}
+                title="Imagen transferida previamente. Clic para desmarcar."
+                className="flex items-center gap-1 bg-amber-950/90 hover:bg-amber-900 text-amber-300 border border-amber-600/70 px-1.5 py-0.5 rounded-md text-[9px] sm:text-[10px] font-semibold transition-all shadow-sm active:scale-95"
+              >
+                <CheckCheck className="w-3 h-3 text-amber-400 shrink-0" />
+                <span className="hidden xs:inline">Copiada</span>
+              </button>
+            )
           )}
         </div>
 
@@ -257,27 +293,68 @@ export function GridItem({
           </button>
         )}
 
-        {/* Botón de Menú de Acciones */}
+        {/* Botón de Acción: En 20 columnas es BOTÓN DIRECTO DE COPIAR; en modo normal es Menú */}
         {!isMultiSelectMode && (
           <div className="relative">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setMenuOpen(!menuOpen);
-              }}
-              className="p-1 rounded-md sm:rounded-lg bg-slate-950/85 backdrop-blur-md text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-              aria-label="Menú de opciones de casilla"
-            >
-              <MoreVertical className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-            </button>
+            {isDenseGrid ? (
+              isActive && item.public_url ? (
+                <button
+                  onClick={handleCopy}
+                  title="Copiar imagen al portapapeles (Gemini / DeepSeek)"
+                  className={`p-1 rounded backdrop-blur-md transition-all active:scale-90 shrink-0 border ${
+                    copiedRecently
+                      ? 'bg-emerald-600 text-white border-emerald-400 shadow-lg shadow-emerald-500/50'
+                      : 'bg-slate-950/85 text-sky-400 hover:text-white hover:bg-sky-600 border-slate-800'
+                  }`}
+                  aria-label="Copiar imagen directamente para Gemini"
+                >
+                  {copiedRecently ? (
+                    <Check className="w-3 h-3 text-white animate-bounce" />
+                  ) : (
+                    <Copy className="w-3 h-3" />
+                  )}
+                </button>
+              ) : (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMenuOpen(!menuOpen);
+                  }}
+                  className="p-1 rounded bg-slate-950/85 backdrop-blur-md text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                  aria-label="Opciones"
+                >
+                  <MoreVertical className="w-3 h-3" />
+                </button>
+              )
+            ) : (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMenuOpen(!menuOpen);
+                }}
+                className="p-1 rounded-md sm:rounded-lg bg-slate-950/85 backdrop-blur-md text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                aria-label="Menú de opciones de casilla"
+              >
+                <MoreVertical className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              </button>
+            )}
 
             {menuOpen && (
               <div
                 onClick={(e) => e.stopPropagation()}
-                className="absolute right-0 top-7 z-30 w-44 sm:w-52 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl py-1 text-xs text-slate-200 animate-fade-in"
+                className="absolute right-0 top-7 z-50 w-48 sm:w-56 bg-slate-900/95 backdrop-blur-xl border border-slate-700 rounded-xl shadow-2xl py-1 text-xs text-slate-200 animate-fade-in"
               >
                 {isActive && (
                   <>
+                    {/* PRIMERA OPCIÓN: COPIAR IMAGEN PARA GEMINI / DEEPSEEK */}
+                    <button
+                      onClick={handleCopy}
+                      className="w-full px-3 py-2 text-left hover:bg-slate-800 flex items-center gap-2 font-medium text-emerald-300 hover:text-emerald-200"
+                    >
+                      <Copy className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>Copiar imagen (Gemini / DeepSeek)</span>
+                    </button>
+
                     <button
                       onClick={() => {
                         setMenuOpen(false);
@@ -287,14 +364,6 @@ export function GridItem({
                     >
                       <Eye className="w-3.5 h-3.5 text-sky-400" />
                       Ver imagen grande
-                    </button>
-
-                    <button
-                      onClick={handleCopy}
-                      className="w-full px-3 py-2 text-left hover:bg-slate-800 flex items-center gap-2"
-                    >
-                      <Copy className="w-3.5 h-3.5 text-emerald-400" />
-                      Copiar imagen
                     </button>
 
                     <button
@@ -387,8 +456,8 @@ export function GridItem({
         </div>
       )}
 
-      {/* Overlay inferior con timestamp */}
-      {isActive && item.uploaded_at && (
+      {/* Overlay inferior con timestamp (oculto en 20 columnas para no tapar la fotografía) */}
+      {isActive && item.uploaded_at && !isDenseGrid && (
         <div className="z-10 bg-slate-950/80 backdrop-blur-md px-1.5 sm:px-2 py-0.5 rounded text-[9px] sm:text-[10px] text-slate-400 self-start border border-slate-800">
           {new Date(item.uploaded_at).toLocaleTimeString('es-ES', {
             hour: '2-digit',
