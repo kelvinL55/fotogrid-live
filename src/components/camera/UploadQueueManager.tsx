@@ -5,9 +5,7 @@ import { getPendingUploads, removePendingUpload } from '@/lib/utils/queue';
 import { PendingUpload } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/Toast';
-import { createClient } from '@/lib/supabase/client';
-import { APP_CONFIG } from '@/lib/config';
-import { WifiOff, RefreshCw, Trash2, CloudUpload } from 'lucide-react';
+import { WifiOff, RefreshCw, Trash2 } from 'lucide-react';
 
 interface UploadQueueManagerProps {
   projectId: string;
@@ -15,7 +13,6 @@ interface UploadQueueManagerProps {
 }
 
 export function UploadQueueManager({ projectId, onQueueEmpty }: UploadQueueManagerProps) {
-  const supabase = createClient();
   const { showToast } = useToast();
 
   const [pendingQueue, setPendingQueue] = useState<PendingUpload[]>([]);
@@ -34,38 +31,40 @@ export function UploadQueueManager({ projectId, onQueueEmpty }: UploadQueueManag
     setRetryingId(upload.id);
 
     try {
-      const { data: userData } = await supabase.auth.getUser();
-      if (!userData.user) throw new Error('Sesión no encontrada.');
+      const formData = new FormData();
+      const baseItem = {
+        id: upload.item_id,
+        project_id: upload.project_id,
+        position: upload.position,
+        status: 'active',
+        original_filename: upload.filename,
+        mime_type: upload.file.type || 'image/jpeg',
+        file_size: upload.file.size,
+        captured_at: new Date(upload.timestamp).toISOString(),
+        uploaded_at: new Date().toISOString(),
+        version: 1,
+      };
 
-      const fileExt = upload.filename.split('.').pop() || 'jpg';
-      const storagePath = `${userData.user.id}/${upload.project_id}/${upload.item_id}/v1.${fileExt}`;
+      formData.append('item', JSON.stringify(baseItem));
+      formData.append('file', upload.file);
 
-      // Reintentar subida a Storage
-      const { error: uploadError } = await supabase.storage
-        .from(APP_CONFIG.storage.bucketName)
-        .upload(storagePath, upload.file, {
-          contentType: upload.file.type || 'image/jpeg',
-          upsert: true,
-        });
+      const res = await fetch('/api/items', {
+        method: 'POST',
+        body: formData,
+      });
 
-      if (uploadError) throw uploadError;
-
-      // Actualizar registro en Postgres a 'active'
-      const { error: updateError } = await supabase
-        .from('project_items')
-        .update({
-          status: 'active',
-          storage_path: storagePath,
-          uploaded_at: new Date().toISOString(),
-          error_message: null,
-        })
-        .eq('id', upload.item_id);
-
-      if (updateError) throw updateError;
+      if (!res.ok) {
+        let msg = `Error HTTP ${res.status}`;
+        try {
+          const json = await res.json();
+          if (json.error) msg = json.error;
+        } catch (_e) {}
+        throw new Error(msg);
+      }
 
       // Quitar de IndexedDB
       await removePendingUpload(upload.id);
-      showToast(`¡Fotografía #${upload.position} reintentada y subida con éxito!`, 'success');
+      showToast(`¡Fotografía #${upload.position} subida con éxito!`, 'success');
       await loadQueue();
       if (onQueueEmpty) onQueueEmpty();
     } catch (err: any) {

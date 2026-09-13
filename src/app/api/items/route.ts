@@ -127,12 +127,16 @@ export async function POST(request: Request) {
 
       if (uploadErr) {
         console.error('Error al subir imagen a Supabase Storage:', uploadErr);
-      } else {
-        const { data: urlData } = supabase.storage
-          .from(APP_CONFIG.storage.bucketName)
-          .getPublicUrl(storagePath);
-        publicUrl = urlData?.publicUrl ? `${urlData.publicUrl}?t=${Date.now()}` : undefined;
+        return NextResponse.json(
+          { error: `Error al subir imagen al almacenamiento: ${uploadErr.message}` },
+          { status: 500 }
+        );
       }
+
+      const { data: urlData } = supabase.storage
+        .from(APP_CONFIG.storage.bucketName)
+        .getPublicUrl(storagePath);
+      publicUrl = urlData?.publicUrl ? `${urlData.publicUrl}?t=${Date.now()}` : undefined;
     }
 
     const nowIso = new Date().toISOString();
@@ -165,7 +169,6 @@ export async function POST(request: Request) {
       return NextResponse.json({
         error: upsertErr.message,
         details: upsertErr.details,
-        item: { ...dbRecord, public_url: publicUrl },
       }, { status: 500 });
     }
 
@@ -174,19 +177,27 @@ export async function POST(request: Request) {
       public_url: publicUrl || undefined,
     };
 
-    // Incrementar next_position en proyectos solo si no es un reemplazo
-    if (!existingItem) {
-      try {
-        await supabase
-          .from('projects')
-          .update({
-            next_position: targetPosition + 1,
-            updated_at: nowIso,
-          })
-          .eq('id', projectId);
-      } catch (_e) {
-        // No bloqueante
-      }
+    // Incrementar next_position en proyectos reflejando el máximo de las casillas
+    try {
+      const { data: maxPosData } = await supabase
+        .from('project_items')
+        .select('position')
+        .eq('project_id', projectId)
+        .order('position', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const calculatedNext = Math.max(targetPosition + 1, (maxPosData?.position || 0) + 1);
+
+      await supabase
+        .from('projects')
+        .update({
+          next_position: calculatedNext,
+          updated_at: nowIso,
+        })
+        .eq('id', projectId);
+    } catch (_e) {
+      // No bloqueante
     }
 
     return NextResponse.json({ item: resultItem });

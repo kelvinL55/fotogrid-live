@@ -32,9 +32,10 @@ interface QueueItem {
   file: File;
   previewUrl: string;
   timestamp: number;
-  status: 'pending' | 'compressing' | 'uploading' | 'success' | 'error';
+  status: 'pending' | 'compressing' | 'uploading' | 'retrying' | 'success' | 'error';
   errorMessage?: string;
   version?: number;
+  retryCount?: number;
 }
 
 interface CameraCaptureProps {
@@ -77,12 +78,15 @@ export function CameraCapture({
 
   // Cola de subida en segundo plano
   const [uploadQueue, setUploadQueue] = useState<QueueItem[]>([]);
+  const uploadQueueRef = useRef<QueueItem[]>([]);
+  uploadQueueRef.current = uploadQueue;
+
   const [sentCount, setSentCount] = useState<number>(0);
   const isProcessingQueue = useRef<boolean>(false);
 
   const normalizedProjectId = normalizeProjectId(project.id);
 
-  // Actualizar posición objetivo inicial
+  // Sincronizar posición objetivo cuando cambia el proyecto
   useEffect(() => {
     if (replacementTargetItem) {
       setCurrentPosition(replacementTargetItem.position);
@@ -130,44 +134,47 @@ export function CameraCapture({
     };
   }, [liveStreamActive, facingMode, previewUrl, showToast]);
 
-  const fileToDataUrl = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  };
-
   // ----------------------------------------------------
-  // WORKER DE COLA EN SEGUNDO PLANO (NON-BLOCKING)
+  // WORKER DE COLA EN SEGUNDO PLANO (FIFO SECUENCIAL Y ROBUSTO)
   // ----------------------------------------------------
-  const processNextQueueItem = useCallback(async () => {
+  const runQueueWorker = useCallback(async () => {
     if (isProcessingQueue.current) return;
+    isProcessingQueue.current = true;
 
-    setUploadQueue((currentQueue) => {
-      const nextItemIndex = currentQueue.findIndex((item) => item.status === 'pending');
-      if (nextItemIndex === -1) return currentQueue;
+    try {
+      while (true) {
+        // Encontrar el primer elemento en orden de cola que requiera procesamiento
+        const queue = uploadQueueRef.current;
+        const targetItem = queue.find(
+          (it) => it.status === 'pending' || it.status === 'retrying'
+        );
 
-      isProcessingQueue.current = true;
-      const targetItem = currentQueue[nextItemIndex];
+        if (!targetItem) break;
 
-      const updatedQueue = [...currentQueue];
-      updatedQueue[nextItemIndex] = { ...targetItem, status: 'compressing' };
+        // 1. Optimizar imagen
+        setUploadQueue((prev) =>
+          prev.map((it) => (it.id === targetItem.id ? { ...it, status: 'compressing' } : it))
+        );
 
-      (async () => {
+        let processed: { file: File; width: number; height: number };
         try {
-          // 1. Optimizar imagen velozmente
-          const processed = await compressImage(targetItem.file);
+          processed = await compressImage(targetItem.file);
+        } catch (_compErr) {
+          processed = { file: targetItem.file, width: 1920, height: 1080 };
+        }
 
-          setUploadQueue((q) =>
-            q.map((it) => (it.id === targetItem.id ? { ...it, status: 'uploading' } : it))
-          );
+        // 2. Marcar como subiendo
+        setUploadQueue((prev) =>
+          prev.map((it) => (it.id === targetItem.id ? { ...it, status: 'uploading' } : it))
+        );
 
-          let finalPublicUrl: string | undefined = undefined;
-          let isUploadedToServer = false;
+        // 3. Subir al servidor con reintentos automáticos (Garantía de entrega tipo TCP)
+        let uploadSuccess = false;
+        let finalPublicUrl = '';
+        let lastErrorMsg = '';
+        const maxRetries = 3;
 
-          // 2. Enviar a /api/items
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
           try {
             const formData = new FormData();
             const baseItem: Partial<ProjectItem> = {
@@ -176,7 +183,7 @@ export function CameraCapture({
               position: targetItem.position,
               status: 'active',
               original_filename: targetItem.file.name,
-              mime_type: processed.file.type,
+              mime_type: processed.file.type || 'image/jpeg',
               file_size: processed.file.size,
               width: processed.width,
               height: processed.height,
@@ -188,32 +195,70 @@ export function CameraCapture({
             formData.append('item', JSON.stringify(baseItem));
             formData.append('file', processed.file);
 
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s por intento
+
             const res = await fetch('/api/items', {
               method: 'POST',
               body: formData,
+              signal: controller.signal,
             });
+            clearTimeout(timeoutId);
 
             if (res.ok) {
               const json = await res.json();
               if (json.item?.public_url) {
                 finalPublicUrl = json.item.public_url;
-                isUploadedToServer = true;
+                uploadSuccess = true;
+                break;
+              } else {
+                throw new Error('El servidor no devolvió una URL pública válida.');
               }
+            } else {
+              let msg = `Error del servidor HTTP ${res.status}`;
+              try {
+                const errJson = await res.json();
+                if (errJson.error) msg = errJson.error;
+              } catch (_e) {}
+              throw new Error(msg);
             }
-          } catch (apiErr) {
-            console.warn('Aviso API /api/items:', apiErr);
-          }
+          } catch (err: any) {
+            lastErrorMsg =
+              err.name === 'AbortError'
+                ? 'Conexión lenta: tiempo de espera agotado'
+                : err.message || 'Error de red';
 
-          if (!finalPublicUrl) {
-            finalPublicUrl = await fileToDataUrl(processed.file);
-          }
+            console.warn(
+              `Intento ${attempt}/${maxRetries} falló para foto #${targetItem.position}:`,
+              lastErrorMsg
+            );
 
+            if (attempt < maxRetries) {
+              setUploadQueue((prev) =>
+                prev.map((it) =>
+                  it.id === targetItem.id
+                    ? {
+                        ...it,
+                        status: 'retrying',
+                        retryCount: attempt,
+                        errorMessage: `Reintentando (${attempt}/${maxRetries})...`,
+                      }
+                    : it
+                )
+              );
+              // Pausa de 1.2 segundos antes del siguiente reintento
+              await new Promise((resolve) => setTimeout(resolve, 1200));
+            }
+          }
+        }
+
+        if (uploadSuccess) {
           const activeItem: ProjectItem = {
             id: targetItem.itemId,
             project_id: normalizedProjectId,
             position: targetItem.position,
             status: 'active',
-            storage_path: isUploadedToServer ? `public/${normalizedProjectId}/${targetItem.itemId}` : null,
+            storage_path: `public/${normalizedProjectId}/${targetItem.itemId}`,
             original_filename: targetItem.file.name,
             mime_type: processed.file.type,
             file_size: processed.file.size,
@@ -228,71 +273,50 @@ export function CameraCapture({
             public_url: finalPublicUrl,
           };
 
-          // 3. Guardar en localStorage para visor local inmediato
+          // Actualizar localStorage sin saturarlo
           if (typeof window !== 'undefined') {
-            const existing: ProjectItem[] = JSON.parse(
-              localStorage.getItem(`demo_items_${normalizedProjectId}`) || '[]'
-            );
-
-            const updated = existing.filter(
-              (i) => i.position !== targetItem.position && i.id !== targetItem.itemId
-            );
-            updated.push(activeItem);
-            updated.sort((a, b) => a.position - b.position);
-
-            localStorage.setItem(`demo_items_${normalizedProjectId}`, JSON.stringify(updated));
-            if (project.id !== normalizedProjectId) {
-              localStorage.setItem(`demo_items_${project.id}`, JSON.stringify(updated));
-            }
-
-            const demoProjects: Project[] = JSON.parse(
-              localStorage.getItem('demo_projects') || '[]'
-            );
-            const pIndex = demoProjects.findIndex(
-              (p) => p.id === project.id || p.id === normalizedProjectId
-            );
-            if (pIndex >= 0) {
-              demoProjects[pIndex].next_position = Math.max(
-                demoProjects[pIndex].next_position || 1,
-                targetItem.position + 1
+            try {
+              const existing: ProjectItem[] = JSON.parse(
+                localStorage.getItem(`demo_items_${normalizedProjectId}`) || '[]'
               );
-              localStorage.setItem('demo_projects', JSON.stringify(demoProjects));
-            }
-
-            window.dispatchEvent(new Event('storage'));
+              const updated = existing.filter(
+                (i) => i.position !== targetItem.position && i.id !== targetItem.itemId
+              );
+              updated.push(activeItem);
+              updated.sort((a, b) => a.position - b.position);
+              localStorage.setItem(`demo_items_${normalizedProjectId}`, JSON.stringify(updated));
+            } catch (_e) {}
           }
 
-          // 4. Emitir evento Realtime
+          // Emitir evento Realtime al visor de escritorio
           try {
             const channel = supabase.channel(`project_items:${normalizedProjectId}`);
-            channel.subscribe((subStatus) => {
-              if (subStatus === 'SUBSCRIBED') {
-                channel.send({
-                  type: 'broadcast',
-                  event: 'new_photo',
-                  payload: {
-                    item: activeItem,
-                    itemId: activeItem.id,
-                    position: targetItem.position,
-                    timestamp: new Date().toISOString(),
-                  },
-                });
-              }
+            channel.send({
+              type: 'broadcast',
+              event: 'new_photo',
+              payload: {
+                item: activeItem,
+                itemId: activeItem.id,
+                position: targetItem.position,
+                timestamp: new Date().toISOString(),
+              },
             });
           } catch (_bcErr) {}
 
-          // 5. Marcar como éxito en la cola
+          // Marcar como éxito y notificar
           setUploadQueue((q) =>
             q.map((it) => (it.id === targetItem.id ? { ...it, status: 'success' } : it))
           );
           setSentCount((prev) => prev + 1);
           onUploadSuccess();
 
+          // Retirar de la cola tras breve confirmación
           setTimeout(() => {
             setUploadQueue((q) => q.filter((it) => it.id !== targetItem.id));
-          }, 2000);
-        } catch (err: any) {
-          console.error('Error procesando item de cola:', err);
+          }, 1500);
+        } else {
+          // Si falló tras todos los reintentos, registrar y alertar
+          console.error(`Fallo definitivo al subir foto #${targetItem.position}:`, lastErrorMsg);
           try {
             await savePendingUpload({
               id: targetItem.id,
@@ -302,9 +326,9 @@ export function CameraCapture({
               file: targetItem.file,
               filename: targetItem.file.name,
               timestamp: targetItem.timestamp,
-              retry_count: 0,
+              retry_count: maxRetries,
               status: 'failed',
-              error_message: err.message || 'Error de conexión',
+              error_message: lastErrorMsg,
               preview_url: targetItem.previewUrl,
             });
           } catch (_dbErr) {}
@@ -312,29 +336,37 @@ export function CameraCapture({
           setUploadQueue((q) =>
             q.map((it) =>
               it.id === targetItem.id
-                ? { ...it, status: 'error', errorMessage: err.message || 'Error al subir' }
+                ? { ...it, status: 'error', errorMessage: lastErrorMsg || 'Error al subir foto' }
                 : it
             )
           );
-        } finally {
-          isProcessingQueue.current = false;
         }
-      })();
-
-      return updatedQueue;
-    });
-  }, [normalizedProjectId, onUploadSuccess, project.id, supabase]);
-
-  // Disparar procesamiento cuando haya cambios en la cola
-  useEffect(() => {
-    const hasPending = uploadQueue.some((it) => it.status === 'pending');
-    if (hasPending && !isProcessingQueue.current) {
-      processNextQueueItem();
+      }
+    } finally {
+      isProcessingQueue.current = false;
     }
-  }, [uploadQueue, processNextQueueItem]);
+  }, [normalizedProjectId, onUploadSuccess, supabase]);
+
+  // Disparar worker ante cualquier elemento pendiente
+  useEffect(() => {
+    const hasWork = uploadQueue.some((it) => it.status === 'pending' || it.status === 'retrying');
+    if (hasWork && !isProcessingQueue.current) {
+      runQueueWorker();
+    }
+  }, [uploadQueue, runQueueWorker]);
+
+  const handleRetryItem = (itemId: string) => {
+    setUploadQueue((prev) =>
+      prev.map((it) =>
+        it.id === itemId
+          ? { ...it, status: 'pending', errorMessage: undefined, retryCount: 0 }
+          : it
+      )
+    );
+  };
 
   // ----------------------------------------------------
-  // ENCOLAR FOTOGRAFÍA (INMEDIATO Y SIN BLOQUEO)
+  // ENCOLAR FOTOGRAFÍA (SECUENCIAL, ESTRICTA Y SIN SALTOS)
   // ----------------------------------------------------
   const enqueuePhoto = (fileToEnqueue: File, preview: string) => {
     let targetPos: number;
@@ -346,9 +378,11 @@ export function CameraCapture({
       targetItemId = replacementTargetItem.id;
       currentVersion = (replacementTargetItem.version || 1) + 1;
     } else {
-      targetPos = currentPosition;
+      // Calcular la posición estrictamente consecutiva garantizada
+      const maxQueuePos = uploadQueue.reduce((max, it) => Math.max(max, it.position), 0);
+      targetPos = Math.max(currentPosition, maxQueuePos + 1, project.next_position || 1);
       targetItemId = generateUUID();
-      setCurrentPosition((prev) => prev + 1);
+      setCurrentPosition(targetPos + 1);
     }
 
     const newQueueItem: QueueItem = {
@@ -363,9 +397,9 @@ export function CameraCapture({
     };
 
     setUploadQueue((prev) => [...prev, newQueueItem]);
-    showToast(`¡Foto #${targetPos} en cola de subida!`, 'success');
+    showToast(`¡Foto #${targetPos} en cola de subida segura!`, 'success');
 
-    // Despejar vista previa de inmediato para dejar la cámara lista en 0 segundos
+    // Despejar vista previa de inmediato para dejar la cámara lista para la siguiente
     setSelectedFile(null);
     setPreviewUrl(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -461,7 +495,17 @@ export function CameraCapture({
             {uploadQueue.map((item) => (
               <div
                 key={item.id}
-                className="relative w-12 h-12 rounded-lg overflow-hidden border shrink-0 bg-slate-950 border-slate-700"
+                onClick={() => {
+                  if (item.status === 'error') {
+                    handleRetryItem(item.id);
+                  }
+                }}
+                title={item.errorMessage || `Foto #${item.position}: ${item.status}`}
+                className={`relative w-12 h-12 rounded-lg overflow-hidden border shrink-0 bg-slate-950 ${
+                  item.status === 'error'
+                    ? 'border-rose-500 ring-1 ring-rose-500/50 cursor-pointer hover:scale-105 transition-transform'
+                    : 'border-slate-700'
+                }`}
               >
                 <img src={item.previewUrl} alt={`Foto ${item.position}`} className="w-full h-full object-cover" />
                 <span className="absolute top-0.5 left-0.5 bg-slate-950/90 font-mono text-[9px] font-bold text-sky-300 px-1 rounded">
@@ -469,11 +513,16 @@ export function CameraCapture({
                 </span>
                 <div className="absolute inset-0 bg-slate-950/40 flex items-center justify-center">
                   {item.status === 'pending' && <Layers className="w-3.5 h-3.5 text-slate-300" />}
-                  {(item.status === 'compressing' || item.status === 'uploading') && (
+                  {(item.status === 'compressing' || item.status === 'uploading' || item.status === 'retrying') && (
                     <Loader2 className="w-4 h-4 text-sky-400 animate-spin" />
                   )}
                   {item.status === 'success' && <Check className="w-4 h-4 text-emerald-400 font-bold" />}
-                  {item.status === 'error' && <AlertCircle className="w-4 h-4 text-rose-400" />}
+                  {item.status === 'error' && (
+                    <div className="flex flex-col items-center">
+                      <AlertCircle className="w-4 h-4 text-rose-400" />
+                      <span className="text-[7px] text-rose-300 font-bold">Reintentar</span>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}

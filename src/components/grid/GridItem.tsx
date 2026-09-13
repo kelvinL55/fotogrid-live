@@ -4,7 +4,7 @@ import React, { useState, useRef } from 'react';
 import { ProjectItem, Project, GridDensity } from '@/lib/types';
 import { formatPositionNumber, generateDownloadFilename, downloadSingleImage } from '@/lib/utils/download';
 import { copyImageToClipboard } from '@/lib/utils/clipboard';
-import { setupMultiImageDrag } from '@/lib/utils/dragDrop';
+import { setupMultiImageDrag, cleanupDragGhostElement } from '@/lib/utils/dragDrop';
 import { useToast } from '@/components/ui/Toast';
 import { createClient } from '@/lib/supabase/client';
 import { APP_CONFIG } from '@/lib/config';
@@ -65,6 +65,7 @@ export function GridItem({
   const [menuOpen, setMenuOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [copiedRecently, setCopiedRecently] = useState(false);
+  const [imageLoadError, setImageLoadError] = useState(false);
   const draggedItemsRef = useRef<ProjectItem[]>([]);
 
   const isDenseGrid = density === 20;
@@ -79,6 +80,11 @@ export function GridItem({
     e.stopPropagation();
     setMenuOpen(false);
     if (!item?.public_url) return;
+
+    if (imageLoadError) {
+      showToast('Esta foto no se subió completa al servidor. Reemplázala para poder copiarla.', 'error');
+      return;
+    }
 
     const res = await copyImageToClipboard(item.public_url);
     if (res.success) {
@@ -178,7 +184,7 @@ export function GridItem({
   };
 
   const handleDragStart = (e: React.DragEvent) => {
-    if (!item?.public_url) return;
+    if (!item?.public_url || imageLoadError) return;
 
     // Configurar payload de multi-drag o single drag
     const draggedItems = setupMultiImageDrag({
@@ -189,21 +195,10 @@ export function GridItem({
     });
 
     draggedItemsRef.current = draggedItems;
-
-    // Aviso informativo si la imagen (o alguna seleccionada) ya fue transferida previamente
-    const hasCopiedItem = draggedItems.some((i) => (i.id === item.id ? isCopied : false));
-    if (hasCopiedItem || isCopied) {
-      showToast(
-        draggedItems.length > 1
-          ? 'Aviso: Algunas de las imágenes seleccionadas ya fueron transferidas previamente.'
-          : 'Aviso: Esta imagen ya fue transferida previamente.',
-        'info'
-      );
-    }
   };
 
   const handleDragEnd = (_e: React.DragEvent) => {
-    // Al soltarse o transferirse a otra app externa, marcar como copiadas
+    cleanupDragGhostElement();
     const dragged = draggedItemsRef.current;
     if (dragged.length > 0) {
       onMarkCopied?.(dragged.map((i) => i.id));
@@ -213,7 +208,7 @@ export function GridItem({
 
   return (
     <div
-      draggable={isActive && Boolean(item?.public_url)}
+      draggable={isActive && Boolean(item?.public_url) && !imageLoadError}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
       onContextMenu={(e) => {
@@ -446,15 +441,30 @@ export function GridItem({
         <div className="absolute inset-0 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm z-20">
           <Loader2 className="w-6 h-6 text-sky-400 animate-spin" />
         </div>
-      ) : isActive && item.public_url ? (
+      ) : isActive && item.public_url && !imageLoadError ? (
         <div className="absolute inset-0 w-full h-full">
           <img
             src={item.public_url}
             alt={`Fotografía ${formattedPos}`}
             loading="lazy"
             draggable={false}
+            onError={() => setImageLoadError(true)}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 pointer-events-none select-none"
           />
+        </div>
+      ) : isActive && imageLoadError ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center p-2 text-center bg-rose-950/20 border border-rose-900/40 rounded-xl">
+          <AlertCircle className="w-5 h-5 text-rose-400 mb-1" />
+          <span className="text-[9px] sm:text-[10px] text-rose-300 font-medium">Foto incompleta</span>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onReplaceItem(item);
+            }}
+            className="mt-1 text-[8px] sm:text-[9px] text-sky-400 hover:text-sky-300 underline font-semibold"
+          >
+            Reemplazar
+          </button>
         </div>
       ) : isUploading ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center p-2 text-center bg-sky-950/20">

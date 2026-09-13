@@ -43,6 +43,9 @@ export default function ProjectViewerPage() {
 
   const [qrModalOpen, setQrModalOpen] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
+  const [itemsMaxPos, setItemsMaxPos] = useState<number>(0);
+
+  const displayNextPos = Math.max(project.next_position || 1, itemsMaxPos > 0 ? itemsMaxPos + 1 : 1);
 
   useEffect(() => {
     let isMounted = true;
@@ -120,11 +123,11 @@ export default function ProjectViewerPage() {
                     {copiedCode ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
                   </button>
                   <span className="inline-flex sm:hidden text-[10px] font-medium text-slate-400 bg-slate-800/80 px-1.5 py-0.5 rounded shrink-0">
-                    #{project.next_position}
+                    #{displayNextPos}
                   </span>
                 </div>
                 <p className="text-[10px] sm:text-xs text-slate-400 mt-0.5 truncate hidden sm:block">
-                  Visor en vivo • Casilla siguiente: <strong>#{project.next_position}</strong>
+                  Visor en vivo • Casilla siguiente: <strong>#{displayNextPos}</strong>
                 </p>
               </div>
             </div>
@@ -159,6 +162,10 @@ export default function ProjectViewerPage() {
             project={project}
             onOpenMobileCamera={() => setQrModalOpen(true)}
             onReplaceItemTarget={handleReplaceItemTarget}
+            onItemsChange={(currentItems) => {
+              const maxPos = currentItems.reduce((max, it) => Math.max(max, it.position), 0);
+              setItemsMaxPos(maxPos);
+            }}
           />
         </main>
 

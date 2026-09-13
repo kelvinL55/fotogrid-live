@@ -34,9 +34,15 @@ interface PhotoGridProps {
   project: Project;
   onOpenMobileCamera: () => void;
   onReplaceItemTarget: (item: ProjectItem) => void;
+  onItemsChange?: (items: ProjectItem[]) => void;
 }
 
-export function PhotoGrid({ project, onOpenMobileCamera, onReplaceItemTarget }: PhotoGridProps) {
+export function PhotoGrid({
+  project,
+  onOpenMobileCamera,
+  onReplaceItemTarget,
+  onItemsChange,
+}: PhotoGridProps) {
   const { showToast } = useToast();
 
   const { items, loading, connectionState, latestPhotoId, refreshItems } = useProjectRealtime(project.id);
@@ -49,6 +55,11 @@ export function PhotoGrid({ project, onOpenMobileCamera, onReplaceItemTarget }: 
   const [compacting, setCompacting] = useState(false);
   const [confirmResetOpen, setConfirmResetOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
+
+  // Notificar al componente padre de la lista de ítems actualizada
+  useEffect(() => {
+    onItemsChange?.(items);
+  }, [items, onItemsChange]);
 
   // Precargar en segundo plano los Files de las imágenes para que estén listas síncronamente al arrastrar
   useEffect(() => {
