@@ -67,7 +67,12 @@ export function CameraCapture({
 
   // Opciones de disparo
   const [autoUpload, setAutoUpload] = useState<boolean>(false);
-  const [liveStreamActive, setLiveStreamActive] = useState<boolean>(false);
+  const [liveStreamActive, setLiveStreamActive] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('fotogrid_prefer_live_camera') === 'true';
+    }
+    return false;
+  });
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
 
   // Cola de subida en segundo plano
@@ -86,7 +91,7 @@ export function CameraCapture({
     }
   }, [project.next_position, replacementTargetItem]);
 
-  // Manejo del flujo de cámara en vivo (getUserMedia) si el usuario lo activa
+  // Manejo del flujo de cámara en vivo (getUserMedia) optimizado para panorámica horizontal
   useEffect(() => {
     let stream: MediaStream | null = null;
 
@@ -95,8 +100,9 @@ export function CameraCapture({
         ?.getUserMedia({
           video: {
             facingMode: { ideal: facingMode },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
+            width: { ideal: 2560, min: 1280 },
+            height: { ideal: 1440, min: 720 },
+            aspectRatio: { ideal: 16 / 9 },
           },
           audio: false,
         })
@@ -111,6 +117,9 @@ export function CameraCapture({
           console.warn('No se pudo acceder a la cámara en vivo:', err);
           showToast('No se pudo activar la cámara en pantalla. Usa el disparador nativo.', 'info');
           setLiveStreamActive(false);
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('fotogrid_prefer_live_camera');
+          }
         });
     }
 
@@ -515,97 +524,157 @@ export function CameraCapture({
         />
         <canvas ref={canvasRef} className="hidden" />
 
-        {/* ESTADO 1: VISTA PREVIA RÁPIDA (TOMAR -> VISUALIZAR -> ENVIAR) */}
+        {/* ESTADO 1: VISTA PREVIA INMERSIVA A PANTALLA COMPLETA (LANDSCAPE/PORTRAIT) */}
         {previewUrl ? (
-          <div className="w-full flex flex-col items-center gap-3 animate-fade-in">
-            <div className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 shadow-inner">
-              <img src={previewUrl} alt="Foto capturada" className="w-full h-full object-contain" />
+          <div className="fixed inset-0 z-50 bg-black flex flex-col landscape:flex-row items-center justify-between overflow-hidden select-none animate-fade-in w-screen h-screen">
+            {/* Contenedor de la Imagen Capturada Panorámica */}
+            <div className="relative w-full h-full flex-1 bg-black flex items-center justify-center overflow-hidden p-1">
+              <img
+                src={previewUrl}
+                alt="Foto capturada"
+                className="w-full h-full object-contain"
+              />
 
-              <div className="absolute top-2.5 left-2.5 bg-sky-600/90 text-white font-mono font-bold text-xs px-2.5 py-1 rounded-xl shadow border border-sky-400/40">
-                Casilla #{currentPosition}
+              <div className="absolute top-3 left-3 bg-sky-600/90 text-white font-mono font-bold text-xs px-3 py-1.5 rounded-xl shadow-lg border border-sky-400/40 backdrop-blur-md">
+                Foto para Casilla #{currentPosition}
               </div>
+
+              {pendingCount > 0 && (
+                <div className="absolute top-3 right-3 landscape:right-36 z-30 flex items-center gap-2 px-3 py-1.5 bg-slate-900/90 border border-sky-800/90 rounded-xl text-xs text-sky-300 shadow-xl backdrop-blur-md">
+                  <UploadCloud className="w-3.5 h-3.5 text-sky-400 animate-bounce" />
+                  <span>{pendingCount} en cola</span>
+                </div>
+              )}
             </div>
 
-            <div className="w-full flex items-center gap-2 pt-1">
-              <Button
-                variant="secondary"
-                onClick={handleDiscardPreview}
-                className="py-3 text-xs sm:text-sm flex-1 text-slate-300"
-                leftIcon={<RefreshCw className="w-4 h-4" />}
-              >
-                Descartar
-              </Button>
-
+            {/* BARRA LATERAL DE ACCIÓN (A LA DERECHA EN HORIZONTAL) */}
+            <div className="w-full landscape:w-32 landscape:h-full bg-slate-950/90 backdrop-blur-xl border-t landscape:border-t-0 landscape:border-l border-slate-800 flex landscape:flex-col items-center justify-around landscape:justify-center gap-3 p-3 landscape:py-6 z-40 shrink-0 shadow-2xl">
+              {/* Botón Principal: ENVIAR Y TOMAR SIGUIENTE (En el lateral derecho para el pulgar) */}
               <button
                 onClick={handleConfirmSend}
-                className="flex-[2] py-3 px-4 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 active:scale-95 text-white font-bold text-xs sm:text-sm rounded-xl shadow-lg shadow-emerald-600/40 border border-emerald-400/40 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                className="flex-1 landscape:flex-none landscape:w-20 landscape:h-20 py-3.5 px-4 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 active:scale-90 text-white font-bold text-xs rounded-2xl landscape:rounded-full shadow-2xl shadow-emerald-500/50 border-2 border-emerald-300/60 flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ring-4 ring-black/40"
               >
-                <Send className="w-4 h-4" />
-                <span>Enviar y Tomar Siguiente</span>
+                <Send className="w-6 h-6 text-white" />
+                <span className="text-[10px] font-extrabold uppercase tracking-tight">Enviar</span>
+              </button>
+
+              {/* Botón Secundario: DESCARTAR / REPETIR */}
+              <button
+                onClick={handleDiscardPreview}
+                className="flex-1 landscape:flex-none landscape:w-14 landscape:h-14 py-3 px-3 bg-slate-800 hover:bg-slate-700 active:scale-90 text-slate-300 hover:text-white text-xs rounded-xl landscape:rounded-full border border-slate-700 flex flex-col items-center justify-center gap-0.5 transition-all cursor-pointer shadow-md"
+                title="Descartar y volver a tomar"
+              >
+                <RefreshCw className="w-4 h-4 text-slate-400" />
+                <span className="text-[9px] font-semibold">Repetir</span>
               </button>
             </div>
-
-            <p className="text-[11px] text-slate-400 text-center">
-              Al presionar enviar, la foto se encola en segundo plano y la cámara queda lista al instante.
-            </p>
           </div>
         ) : liveStreamActive ? (
-          /* ESTADO 2: CÁMARA WEB EN PANTALLA EN VIVO */
-          <div className="w-full flex flex-col items-center gap-3 animate-fade-in">
-            <div className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden bg-black border border-slate-800">
+          /* ==================================================== */
+          /* ESTADO 2: CÁMARA INMERSIVA EN PANTALLA COMPLETA      */
+          /* HORIZONTAL (LANDSCAPE): DE BORDE A BORDE CON DISPARO A LA DERECHA */
+          /* ==================================================== */
+          <div className="fixed inset-0 z-50 bg-black flex flex-col landscape:flex-row items-center justify-between overflow-hidden select-none animate-fade-in w-screen h-screen">
+            {/* Contenedor del Visor de Video / Preview a Pantalla Completa */}
+            <div className="relative w-full h-full flex-1 bg-black flex items-center justify-center overflow-hidden">
               <video
                 ref={videoRef}
                 playsInline
                 muted
                 autoPlay
-                className="w-full h-full object-cover"
+                className="w-full h-full object-contain landscape:object-cover"
               />
 
-              <div className="absolute top-2.5 left-2.5 bg-slate-950/80 text-white font-mono font-bold text-xs px-2.5 py-1 rounded-xl border border-slate-700">
-                Casilla #{currentPosition}
+              {/* Controles Flotantes Superiores en el Visor */}
+              <div className="absolute top-3 left-3 z-30 flex items-center gap-2">
+                <button
+                  onClick={() => setLiveStreamActive(false)}
+                  className="px-3 py-1.5 bg-slate-900/80 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold backdrop-blur-md border border-slate-700/80 flex items-center gap-1.5 shadow-lg active:scale-95 cursor-pointer"
+                >
+                  <VideoOff className="w-3.5 h-3.5 text-rose-400" />
+                  <span>Salir</span>
+                </button>
+
+                <div className="bg-sky-950/90 text-sky-300 font-mono font-bold text-xs px-3 py-1.5 rounded-xl border border-sky-800/80 shadow-lg backdrop-blur-md">
+                  Casilla #{currentPosition}
+                </div>
               </div>
 
+              {/* Widget Flotante de Cola en el Visor */}
+              {pendingCount > 0 && (
+                <div className="absolute top-3 right-3 landscape:right-28 z-30 flex items-center gap-2 px-3 py-1.5 bg-slate-900/90 border border-sky-800/90 rounded-xl text-xs text-sky-300 shadow-xl backdrop-blur-md">
+                  <UploadCloud className="w-3.5 h-3.5 text-sky-400 animate-bounce" />
+                  <span>{pendingCount} subiendo en cola...</span>
+                </div>
+              )}
+            </div>
+
+            {/* BARRA LATERAL DE CONTROL (A LA DERECHA EN HORIZONTAL, ABAJO EN VERTICAL) */}
+            <div className="w-full landscape:w-28 landscape:h-full bg-slate-950/80 backdrop-blur-md border-t landscape:border-t-0 landscape:border-l border-slate-800 flex landscape:flex-col items-center justify-around landscape:justify-center p-3 landscape:py-6 landscape:gap-6 z-40 shrink-0 shadow-2xl">
+              {/* Botón de Cambiar Cámara Frontal/Trasera */}
               <button
                 onClick={() => setFacingMode((prev) => (prev === 'environment' ? 'user' : 'environment'))}
-                className="absolute top-2.5 right-2.5 p-2 bg-slate-900/80 hover:bg-slate-800 text-white rounded-full border border-slate-700 active:scale-95"
-                title="Cambiar cámara"
+                className="p-3 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white rounded-full border border-slate-700 active:scale-95 transition-all cursor-pointer shadow-lg"
+                title="Girar cámara"
               >
-                <SwitchCamera className="w-4 h-4" />
+                <SwitchCamera className="w-5 h-5" />
               </button>
-            </div>
 
-            <div className="w-full flex items-center justify-center py-2">
+              {/* BOTÓN OBTURADOR PRINCIPAL (EN EL LATERAL DERECHO) */}
               <button
                 onClick={handleCaptureLiveFrame}
-                className="w-20 h-20 rounded-full bg-white/20 border-4 border-white flex items-center justify-center active:scale-90 transition-transform shadow-2xl group cursor-pointer"
-                aria-label="Disparar foto"
+                className="w-20 h-20 landscape:w-22 landscape:h-22 rounded-full bg-white/20 border-4 border-white flex items-center justify-center active:scale-90 transition-transform shadow-2xl group cursor-pointer ring-4 ring-black/40"
+                aria-label="Tomar fotografía"
               >
-                <div className="w-14 h-14 rounded-full bg-white group-hover:bg-sky-400 transition-colors" />
+                <div className="w-15 h-15 landscape:w-16 landscape:h-16 rounded-full bg-white group-hover:bg-sky-400 transition-colors shadow-inner" />
+              </button>
+
+              {/* Toggle de Modo Ráfaga */}
+              <button
+                onClick={() => setAutoUpload(!autoUpload)}
+                className={`p-3 rounded-full border active:scale-95 transition-all cursor-pointer shadow-lg ${
+                  autoUpload
+                    ? 'bg-amber-500/20 border-amber-500 text-amber-400'
+                    : 'bg-slate-900 border-slate-700 text-slate-500'
+                }`}
+                title={autoUpload ? 'Modo Ráfaga Activo (Auto-encolar)' : 'Modo Ráfaga Desactivado'}
+              >
+                <Zap className={`w-5 h-5 ${autoUpload ? 'fill-amber-400 text-amber-400' : ''}`} />
               </button>
             </div>
-
-            <button
-              onClick={() => setLiveStreamActive(false)}
-              className="text-xs text-slate-400 hover:text-white flex items-center gap-1 mt-1 cursor-pointer"
-            >
-              <VideoOff className="w-3.5 h-3.5" />
-              <span>Usar disparador nativo de Android</span>
-            </button>
           </div>
         ) : (
           /* ESTADO 3: BOTÓN DE DISPARO PRINCIPAL (CÁMARA ANDROID NATIVA) */
           <div className="w-full flex flex-col items-center gap-3.5 py-1">
+            {/* BOTÓN 1: CÁMARA EN PANTALLA PANORÁMICA (HORIZONTAL CON DISPARADOR A LA DERECHA) */}
+            <button
+              onClick={() => {
+                setLiveStreamActive(true);
+                if (typeof window !== 'undefined') {
+                  localStorage.setItem('fotogrid_prefer_live_camera', 'true');
+                  document.documentElement.requestFullscreen?.().catch(() => {});
+                }
+              }}
+              className="w-full py-5 sm:py-6 bg-gradient-to-r from-sky-600 via-sky-500 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 active:scale-95 text-white font-bold rounded-2xl shadow-xl shadow-sky-600/30 border border-sky-300/40 flex items-center justify-center gap-3 transition-all cursor-pointer group"
+            >
+              <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-md border border-white/30 group-hover:scale-110 transition-transform">
+                <Video className="w-6 h-6 text-white" />
+              </div>
+              <div className="text-left">
+                <span className="block text-base font-bold">CÁMARA EN PANTALLA (HORIZONTAL)</span>
+                <span className="block text-[11px] font-normal text-sky-100/90">
+                  Visor de extremo a extremo con botón a la derecha
+                </span>
+              </div>
+            </button>
+
+            {/* BOTÓN 2: DISPARADOR NATIVO DE ANDROID */}
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="w-full py-10 sm:py-12 bg-gradient-to-b from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 active:scale-95 text-white font-bold text-lg sm:text-xl rounded-2xl sm:rounded-3xl shadow-2xl shadow-sky-500/40 border border-sky-300/40 flex flex-col items-center justify-center gap-2.5 transition-all duration-200 group cursor-pointer"
+              className="w-full py-4 bg-slate-950/80 hover:bg-slate-800 active:scale-95 text-slate-200 font-semibold text-sm rounded-xl border border-slate-700/80 flex items-center justify-center gap-2.5 transition-all cursor-pointer"
             >
-              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-md border border-white/30 group-hover:scale-110 transition-transform shadow-inner">
-                <Camera className="w-8 h-8 sm:w-10 sm:h-10 text-white" />
-              </div>
-              <span className="tracking-wide text-base sm:text-xl">TOMAR FOTOGRAFÍA</span>
-              <span className="text-[11px] sm:text-xs font-normal text-sky-100/90">
-                Toca para abrir la cámara de tu teléfono
-              </span>
+              <Camera className="w-5 h-5 text-sky-400" />
+              <span>Usar Cámara Nativa de Android</span>
             </button>
 
             {/* Toggle de Disparo Ráfaga */}
@@ -639,26 +708,15 @@ export function CameraCapture({
               </button>
             </div>
 
-            {/* Botones complementarios: Galería y Cámara en Pantalla */}
-            <div className="w-full flex items-center gap-2">
-              <Button
-                variant="outline"
-                onClick={() => galleryInputRef.current?.click()}
-                className="flex-1 py-2 text-xs text-slate-300 border-slate-800"
-                leftIcon={<ImageIcon className="w-4 h-4 text-slate-400" />}
-              >
-                Galería
-              </Button>
-
-              <Button
-                variant="outline"
-                onClick={() => setLiveStreamActive(true)}
-                className="flex-1 py-2 text-xs text-slate-300 border-slate-800"
-                leftIcon={<Video className="w-4 h-4 text-sky-400" />}
-              >
-                Cámara en Pantalla
-              </Button>
-            </div>
+            {/* Botón Galería */}
+            <Button
+              variant="outline"
+              onClick={() => galleryInputRef.current?.click()}
+              className="w-full py-2.5 text-xs text-slate-300 border-slate-800"
+              leftIcon={<ImageIcon className="w-4 h-4 text-slate-400" />}
+            >
+              Subir desde Galería
+            </Button>
 
             {sentCount > 0 && (
               <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-950/60 border border-emerald-800/80 rounded-xl text-xs font-semibold text-emerald-300">
