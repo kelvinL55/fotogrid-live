@@ -4,14 +4,16 @@ import React, { useState, useEffect } from 'react';
 import { Project, ProjectItem, GridDensity } from '@/lib/types';
 import { useProjectRealtime } from '@/hooks/useProjectRealtime';
 import { useCopiedItems } from '@/lib/hooks/useCopiedItems';
-import { preloadItemsFiles } from '@/lib/utils/dragDrop';
+import { preloadItemsFiles, clearDragFileCache } from '@/lib/utils/dragDrop';
+import { clearClipboardCache } from '@/lib/utils/clipboard';
+import { clearLocalProject } from '@/lib/utils/itemStorage';
 import { GridItem } from './GridItem';
 import { DensitySelector } from './DensitySelector';
 import { LightboxModal } from './LightboxModal';
 import { MultiSelectToolbar } from './MultiSelectToolbar';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Button } from '@/components/ui/Button';
-import { createClient } from '@/lib/supabase/client';
+import { Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/Toast';
 import {
   Wifi,
@@ -24,6 +26,7 @@ import {
   Minimize2,
   Camera,
   RotateCcw,
+  Trash2,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -44,6 +47,8 @@ export function PhotoGrid({ project, onOpenMobileCamera, onReplaceItemTarget }: 
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
   const [compacting, setCompacting] = useState(false);
+  const [confirmResetOpen, setConfirmResetOpen] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   // Precargar en segundo plano los Files de las imágenes para que estén listas síncronamente al arrastrar
   useEffect(() => {
@@ -101,6 +106,33 @@ export function PhotoGrid({ project, onOpenMobileCamera, onReplaceItemTarget }: 
     }
   };
 
+  const handleResetProject = async () => {
+    setResetting(true);
+    try {
+      const res = await fetch(`/api/projects/reset?projectId=${project.id}`, {
+        method: 'POST',
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Error al reiniciar cuadrícula');
+
+      // Limpiar datos locales y caches para evitar que ninguna foto reviva
+      clearLocalProject(project.id);
+      clearDragFileCache();
+      clearClipboardCache();
+      clearAllCopied();
+      setSelectedItemIds([]);
+      setIsMultiSelectMode(false);
+      setConfirmResetOpen(false);
+
+      showToast('Cuadrícula vaciada. Lista para comenzar desde la casilla #1.', 'success');
+      refreshItems();
+    } catch (err: any) {
+      showToast(err.message || 'Error al reiniciar la cuadrícula.', 'error');
+    } finally {
+      setResetting(false);
+    }
+  };
+
   const selectedItems = items.filter((i) => selectedItemIds.includes(i.id));
 
   return (
@@ -147,6 +179,19 @@ export function PhotoGrid({ project, onOpenMobileCamera, onReplaceItemTarget }: 
           >
             Compactar
           </Button>
+
+          {items.length > 0 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setConfirmResetOpen(true)}
+              className="text-rose-400 hover:text-rose-200 hover:bg-rose-950/40 text-[11px] sm:text-xs py-1 px-2 sm:py-1.5 sm:px-2.5 h-7 sm:h-8 shrink-0"
+              leftIcon={<Trash2 className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-rose-400" />}
+              title="Vaciar todas las fotos y comenzar de nuevo desde la casilla #1"
+            >
+              Vaciar Cuadrícula
+            </Button>
+          )}
 
           {/* Botón para limpiar marcas de copiado si existen */}
           {copiedCount > 0 && (
@@ -276,6 +321,38 @@ export function PhotoGrid({ project, onOpenMobileCamera, onReplaceItemTarget }: 
         onClearSelection={() => setSelectedItemIds([])}
         onRefresh={refreshItems}
       />
+
+      {/* Modal de Confirmación para Vaciar y Reiniciar Cuadrícula */}
+      <Dialog
+        isOpen={confirmResetOpen}
+        onClose={() => setConfirmResetOpen(false)}
+        title="Vaciar Cuadrícula y Comenzar de Nuevo"
+        description="Esta acción eliminará todas las fotografías del proyecto y reiniciará el visor para que la próxima foto comience en la casilla #1."
+      >
+        <div className="space-y-4 pt-2">
+          <div className="p-3 bg-rose-950/30 border border-rose-900/50 rounded-xl text-xs text-rose-200">
+            <p className="font-semibold mb-1">¿Estás seguro de que deseas vaciar este proyecto?</p>
+            <p className="text-rose-300/80">
+              Se eliminarán {items.length} fotografía{items.length !== 1 ? 's' : ''} y sus archivos almacenados. La cuadrícula quedará completamente limpia lista para una nueva sesión.
+            </p>
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+            <Button variant="ghost" onClick={() => setConfirmResetOpen(false)}>
+              Cancelar
+            </Button>
+
+            <Button
+              variant="danger"
+              isLoading={resetting}
+              onClick={handleResetProject}
+              leftIcon={<Trash2 className="w-4 h-4" />}
+            >
+              Vaciar Todo y Reiniciar a #1
+            </Button>
+          </div>
+        </div>
+      </Dialog>
     </div>
   );
 }

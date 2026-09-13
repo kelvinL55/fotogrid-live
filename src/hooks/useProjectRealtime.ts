@@ -17,6 +17,7 @@ export function useProjectRealtime(rawProjectId: string) {
 
   const fetchItems = useCallback(async () => {
     let apiItems: ProjectItem[] = [];
+    let apiSuccess = false;
 
     try {
       const res = await fetch(`/api/items?projectId=${projectId}`);
@@ -24,13 +25,47 @@ export function useProjectRealtime(rawProjectId: string) {
         const json = await res.json();
         if (json.items && Array.isArray(json.items)) {
           apiItems = json.items;
+          apiSuccess = true;
         }
       }
     } catch (_err) {
       // Ignorar fallo de red
     }
 
-    // Unir con items locales si estamos offline o en modo contingencia
+    if (apiSuccess) {
+      // El servidor es la fuente de verdad: evitar que fotos borradas revivan desde localStorage
+      if (typeof window !== 'undefined') {
+        const stored = localStorage.getItem(`demo_items_${projectId}`);
+        if (stored) {
+          try {
+            const demoItems: ProjectItem[] = JSON.parse(stored);
+            const pendingUploading = demoItems.filter((i) => i.status === 'uploading');
+            if (pendingUploading.length > 0) {
+              const merged = [...apiItems];
+              for (const p of pendingUploading) {
+                if (!merged.some((i) => i.id === p.id || i.position === p.position)) {
+                  merged.push(p);
+                }
+              }
+              merged.sort((a, b) => a.position - b.position);
+              setItems(merged);
+              setLoading(false);
+              return;
+            } else {
+              localStorage.removeItem(`demo_items_${projectId}`);
+              localStorage.removeItem(`demo_items_${rawProjectId}`);
+            }
+          } catch (_e) {}
+        }
+      }
+
+      apiItems.sort((a, b) => a.position - b.position);
+      setItems(apiItems);
+      setLoading(false);
+      return;
+    }
+
+    // Fallback de contingencia únicamente si estamos sin conexión o falló la red
     let demoItems: ProjectItem[] = [];
     if (typeof window !== 'undefined') {
       const stored = localStorage.getItem(`demo_items_${projectId}`) || localStorage.getItem(`demo_items_${rawProjectId}`);
@@ -43,15 +78,8 @@ export function useProjectRealtime(rawProjectId: string) {
       }
     }
 
-    const combined = [...apiItems];
-    for (const demoItem of demoItems) {
-      if (!combined.some((i) => i.id === demoItem.id || i.position === demoItem.position)) {
-        combined.push(demoItem);
-      }
-    }
-
-    combined.sort((a, b) => a.position - b.position);
-    setItems(combined);
+    demoItems.sort((a, b) => a.position - b.position);
+    setItems(demoItems);
     setLoading(false);
   }, [projectId, rawProjectId]);
 

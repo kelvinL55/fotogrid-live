@@ -8,6 +8,7 @@ import { Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/Toast';
 import { createClient } from '@/lib/supabase/client';
 import { APP_CONFIG } from '@/lib/config';
+import { removeLocalProjectItems } from '@/lib/utils/itemStorage';
 import { Download, Trash2, X, CheckSquare } from 'lucide-react';
 
 interface MultiSelectToolbarProps {
@@ -64,16 +65,21 @@ export function MultiSelectToolbar({
     setDeleting(true);
 
     try {
-      // 1. Eliminar archivos de Storage
+      // 1. Eliminar archivos de Storage (no bloqueante en caso de error de red)
       const pathsToDelete = selectedItems
         .map((i) => i.storage_path)
         .filter((p): p is string => Boolean(p));
 
       if (pathsToDelete.length > 0) {
-        await supabase.storage.from(APP_CONFIG.storage.bucketName).remove(pathsToDelete);
+        try {
+          await supabase.storage.from(APP_CONFIG.storage.bucketName).remove(pathsToDelete);
+        } catch (_storageErr) {}
       }
 
       const itemIds = selectedItems.map((i) => i.id);
+
+      // 2. Limpiar de localStorage para evitar que revivan en el visor
+      removeLocalProjectItems(project.id, itemIds);
 
       if (deleteMode === 'empty') {
         // Dejar casillas vacías
@@ -92,7 +98,7 @@ export function MultiSelectToolbar({
 
         showToast(`${selectedItems.length} casillas vaciadas.`, 'success');
       } else {
-        // Eliminar y compactar
+        // Eliminar registros de la base de datos
         const { error: delError } = await supabase
           .from('project_items')
           .delete()
@@ -100,11 +106,12 @@ export function MultiSelectToolbar({
 
         if (delError) throw delError;
 
-        const { error: rpcError } = await supabase.rpc('compact_project_positions', {
-          p_project_id: project.id,
-        });
-
-        if (rpcError) throw rpcError;
+        // Compactar orden secuencialmente mediante la API del servidor
+        try {
+          await fetch(`/api/projects/compact?projectId=${project.id}`, {
+            method: 'POST',
+          });
+        } catch (_compactErr) {}
 
         showToast(`${selectedItems.length} fotografías eliminadas y cuadrícula compactada.`, 'success');
       }

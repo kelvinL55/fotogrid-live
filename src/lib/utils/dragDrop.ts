@@ -30,23 +30,61 @@ export async function getOrFetchImageFile(
   }
 }
 
+let isPreloading = false;
+const preloadQueue: Array<{ url: string; filename: string; mimeType: string }> = [];
+
+async function processPreloadQueue() {
+  if (isPreloading) return;
+  isPreloading = true;
+
+  while (preloadQueue.length > 0) {
+    // Tomar máximo 2 descargas concurrentes para mantener libres los sockets HTTP del navegador
+    const batch = preloadQueue.splice(0, 2);
+    await Promise.all(
+      batch.map(async (task) => {
+        try {
+          await getOrFetchImageFile(task.url, task.filename, task.mimeType);
+        } catch (_e) {}
+      })
+    );
+    // Pausa breve de 50ms para no bloquear el hilo de ejecución ni competir con acciones prioritarias
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  isPreloading = false;
+}
+
 /**
- * Precarga en segundo plano los Files de los items activos para que estén listos de forma síncrona en el dragstart.
+ * Precarga en segundo plano los Files de los items activos de manera dosificada.
  */
 export function preloadItemsFiles(items: ProjectItem[], projectName: string = 'FotoGrid') {
   if (typeof window === 'undefined') return;
 
   const activeItems = items.filter((i) => i.status === 'active' && Boolean(i.public_url));
-  activeItems.forEach((item) => {
+  for (const item of activeItems) {
     if (item.public_url && !fileCache.has(item.public_url)) {
       const filename = generateDownloadFilename(
         projectName,
         item.position,
         item.mime_type?.includes('png') ? 'png' : 'jpg'
       );
-      getOrFetchImageFile(item.public_url, filename, item.mime_type || 'image/jpeg');
+      if (!preloadQueue.some((q) => q.url === item.public_url)) {
+        preloadQueue.push({
+          url: item.public_url,
+          filename,
+          mimeType: item.mime_type || 'image/jpeg',
+        });
+      }
     }
-  });
+  }
+
+  processPreloadQueue();
+}
+
+export function clearDragFileCache() {
+  fileCache.clear();
+  preloadQueue.length = 0;
+  isPreloading = false;
 }
 
 /**

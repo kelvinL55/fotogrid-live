@@ -8,6 +8,7 @@ import { setupMultiImageDrag } from '@/lib/utils/dragDrop';
 import { useToast } from '@/components/ui/Toast';
 import { createClient } from '@/lib/supabase/client';
 import { APP_CONFIG } from '@/lib/config';
+import { removeLocalProjectItem } from '@/lib/utils/itemStorage';
 import {
   MoreVertical,
   Copy,
@@ -20,7 +21,6 @@ import {
   PlusCircle,
   CheckSquare,
   Square,
-  Minimize2,
   CheckCheck,
   RotateCcw,
   Check,
@@ -114,7 +114,9 @@ export function GridItem({
 
     try {
       if (item.storage_path) {
-        await supabase.storage.from(APP_CONFIG.storage.bucketName).remove([item.storage_path]);
+        try {
+          await supabase.storage.from(APP_CONFIG.storage.bucketName).remove([item.storage_path]);
+        } catch (_e) {}
       }
 
       const { error } = await supabase
@@ -131,6 +133,9 @@ export function GridItem({
         .eq('id', item.id);
 
       if (error) throw error;
+
+      // Limpiar de localStorage para evitar que la foto reviva
+      removeLocalProjectItem(project.id, item.id, item.position);
 
       showToast(`Casilla #${item.position} vaciada.`, 'success');
       onRefresh();
@@ -149,10 +154,15 @@ export function GridItem({
 
     try {
       if (item.storage_path) {
-        await supabase.storage.from(APP_CONFIG.storage.bucketName).remove([item.storage_path]);
+        try {
+          await supabase.storage.from(APP_CONFIG.storage.bucketName).remove([item.storage_path]);
+        } catch (_e) {}
       }
 
       await supabase.from('project_items').delete().eq('id', item.id);
+
+      // Limpiar de localStorage para evitar que la foto reviva
+      removeLocalProjectItem(project.id, item.id, item.position);
 
       await fetch(`/api/projects/compact?projectId=${project.id}`, {
         method: 'POST',
@@ -423,8 +433,12 @@ export function GridItem({
                 onClick={handleDeleteAndCompact}
                 className="w-full px-3 py-2 text-left hover:bg-slate-800 rounded-lg flex items-center gap-2.5 text-rose-400 transition-colors"
               >
-                <Minimize2 className="w-4 h-4 shrink-0" />
-                <span>Compactar cuadrícula</span>
+                <Trash2 className="w-4 h-4 shrink-0" />
+                <span>
+                  {isUploading || isFailed
+                    ? 'Descartar foto / Eliminar casilla'
+                    : 'Eliminar y compactar'}
+                </span>
               </button>
             </div>
           </div>
@@ -442,7 +456,8 @@ export function GridItem({
             src={item.public_url}
             alt={`Fotografía ${formattedPos}`}
             loading="lazy"
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            draggable={false}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 pointer-events-none select-none"
           />
         </div>
       ) : isUploading ? (
