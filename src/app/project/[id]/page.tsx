@@ -162,19 +162,6 @@ export default function ProjectViewerPage() {
           />
         </main>
 
-        {/* BOTÓN FLOTANTE (FAB) PARA MÓVIL: ACCESO INSTANTÁNEO AL MODO FOTOGRAFÍA */}
-        <div className="fixed bottom-4 right-4 z-40 sm:hidden animate-fade-in">
-          <Link href={`/project/${rawProjectId}/camera`}>
-            <button
-              className="flex items-center gap-2 px-5 py-3.5 bg-gradient-to-r from-sky-500 to-sky-600 active:scale-95 text-white font-bold text-sm rounded-full shadow-2xl shadow-sky-500/50 border border-sky-300/40"
-              aria-label="Abrir modo fotografía"
-            >
-              <Camera className="w-5 h-5 text-white animate-pulse" />
-              <span>Modo Fotografía</span>
-            </button>
-          </Link>
-        </div>
-
         <QRCodeModal
           isOpen={qrModalOpen}
           onClose={() => setQrModalOpen(false)}
