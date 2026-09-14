@@ -1,5 +1,4 @@
 import { ProjectItem } from '@/lib/types';
-import { generateDownloadFilename } from './download';
 
 // Caché en memoria para almacenar metadatos de archivos listos
 const fileCache = new Map<string, File>();
@@ -152,7 +151,7 @@ export function setupMultiImageDrag({
   event,
   targetItem,
   selectedItems,
-  projectName,
+  projectName: _projectName,
 }: SetupMultiDragOptions): ProjectItem[] {
   if (!targetItem.public_url) return [];
 
@@ -174,17 +173,7 @@ export function setupMultiImageDrag({
     const htmlSnippet = urls.map((url, idx) => `<img src="${url}" alt="Foto ${idx + 1}" />`).join('\n');
     event.dataTransfer.setData('text/html', htmlSnippet);
 
-    // 3. Formato nativo DownloadURL para navegadores basados en Chromium (permite arrastrar a carpetas/escritorio)
-    if (itemsToDrag.length === 1 && itemsToDrag[0].public_url) {
-      const item = itemsToDrag[0];
-      const mime = item.mime_type || 'image/jpeg';
-      const filename = generateDownloadFilename(
-        projectName,
-        item.position,
-        mime.includes('png') ? 'png' : 'jpg'
-      );
-      event.dataTransfer.setData('DownloadURL', `${mime}:${filename}:${item.public_url}`);
-    }
+    // 3. (DownloadURL omitido deliberadamente para evitar que Chromium se bloquee al arrastrar entre ventanas web como DeepSeek)
 
     // 4. Metadatos JSON estructurados
     event.dataTransfer.setData(

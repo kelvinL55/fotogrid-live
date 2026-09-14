@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ProjectItem, Project } from '@/lib/types';
 import { formatPositionNumber, generateDownloadFilename, downloadSingleImage } from '@/lib/utils/download';
 import { copyImageToClipboard } from '@/lib/utils/clipboard';
@@ -16,6 +16,9 @@ import {
   Calendar,
   HardDrive,
   Maximize2,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
 } from 'lucide-react';
 
 interface LightboxModalProps {
@@ -42,6 +45,12 @@ export function LightboxModal({
 }: LightboxModalProps) {
   const { showToast } = useToast();
 
+  const [zoomScale, setZoomScale] = useState<number>(1);
+  const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const containerRef = useRef<HTMLDivElement>(null);
+
   const activeItems = items.filter((i) => i.status === 'active' && Boolean(i.public_url));
   const currentIndex = currentItem
     ? activeItems.findIndex((i) => i.id === currentItem.id)
@@ -53,17 +62,99 @@ export function LightboxModal({
       ? activeItems[currentIndex + 1]
       : null;
 
+  // Restablecer zoom al cambiar de imagen o abrir modal
+  const resetZoom = useCallback(() => {
+    setZoomScale(1);
+    setPanOffset({ x: 0, y: 0 });
+    setIsPanning(false);
+  }, []);
+
+  useEffect(() => {
+    resetZoom();
+  }, [currentItem?.id, resetZoom]);
+
+  const handleZoomIn = useCallback(() => {
+    setZoomScale((prev) => Math.min(4, Math.round((prev + 0.5) * 10) / 10));
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setZoomScale((prev) => {
+      const next = Math.max(1, Math.round((prev - 0.5) * 10) / 10);
+      if (next === 1) setPanOffset({ x: 0, y: 0 });
+      return next;
+    });
+  }, []);
+
+  const handleToggleZoom = useCallback(() => {
+    setZoomScale((prev) => {
+      if (prev > 1) {
+        setPanOffset({ x: 0, y: 0 });
+        return 1;
+      } else {
+        return 2.5;
+      }
+    });
+  }, []);
+
+  // Control con rueda del mouse
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    if (e.deltaY < 0) {
+      setZoomScale((prev) => Math.min(4, Math.round((prev + 0.25) * 100) / 100));
+    } else {
+      setZoomScale((prev) => {
+        const next = Math.max(1, Math.round((prev - 0.25) * 100) / 100);
+        if (next === 1) setPanOffset({ x: 0, y: 0 });
+        return next;
+      });
+    }
+  };
+
+  // Paneo al arrastrar cuando hay zoom
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if (zoomScale <= 1) return;
+    setIsPanning(true);
+    dragStartRef.current = {
+      x: e.clientX - panOffset.x,
+      y: e.clientY - panOffset.y,
+    };
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!isPanning || zoomScale <= 1) return;
+    const newX = e.clientX - dragStartRef.current.x;
+    const newY = e.clientY - dragStartRef.current.y;
+    setPanOffset({ x: newX, y: newY });
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    setIsPanning(false);
+    try {
+      (e.target as HTMLElement).releasePointerCapture?.(e.pointerId);
+    } catch (_e) {}
+  };
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isOpen) return;
-      if (e.key === 'Escape') onClose();
-      if (e.key === 'ArrowLeft' && prevItem) onNavigate(prevItem);
-      if (e.key === 'ArrowRight' && nextItem) onNavigate(nextItem);
+      if (e.key === 'Escape') {
+        if (zoomScale > 1) {
+          resetZoom();
+        } else {
+          onClose();
+        }
+      }
+      if (e.key === 'ArrowLeft' && prevItem && zoomScale === 1) onNavigate(prevItem);
+      if (e.key === 'ArrowRight' && nextItem && zoomScale === 1) onNavigate(nextItem);
+      if (e.key === '+' || e.key === '=') handleZoomIn();
+      if (e.key === '-') handleZoomOut();
+      if (e.key === '0') resetZoom();
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, prevItem, nextItem, onClose, onNavigate]);
+  }, [isOpen, prevItem, nextItem, onClose, onNavigate, zoomScale, resetZoom, handleZoomIn, handleZoomOut]);
 
   if (!isOpen || !currentItem || !currentItem.public_url) return null;
 
@@ -92,7 +183,7 @@ export function LightboxModal({
       {/* Botón Cerrar */}
       <button
         onClick={onClose}
-        className="absolute top-3 right-3 sm:top-4 sm:right-4 z-50 p-2 sm:p-2.5 bg-slate-900/90 border border-slate-800 hover:bg-slate-800 rounded-full text-slate-300 hover:text-white transition-colors"
+        className="absolute top-3 right-3 sm:top-4 sm:right-4 z-50 p-2 sm:p-2.5 bg-slate-900/90 border border-slate-800 hover:bg-slate-800 rounded-full text-slate-300 hover:text-white transition-colors cursor-pointer shadow-lg"
         aria-label="Cerrar visor"
       >
         <X className="w-5 h-5 sm:w-6 sm:h-6" />
@@ -102,7 +193,7 @@ export function LightboxModal({
       {prevItem && (
         <button
           onClick={() => onNavigate(prevItem)}
-          className="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 z-50 p-2 sm:p-3 bg-slate-900/80 border border-slate-800 hover:bg-slate-800 rounded-full text-slate-300 hover:text-white transition-colors"
+          className="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 z-50 p-2 sm:p-3 bg-slate-900/80 border border-slate-800 hover:bg-slate-800 rounded-full text-slate-300 hover:text-white transition-colors cursor-pointer shadow-lg"
           aria-label="Fotografía anterior"
         >
           <ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" />
@@ -113,7 +204,7 @@ export function LightboxModal({
       {nextItem && (
         <button
           onClick={() => onNavigate(nextItem)}
-          className="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 z-50 p-2 sm:p-3 bg-slate-900/80 border border-slate-800 hover:bg-slate-800 rounded-full text-slate-300 hover:text-white transition-colors"
+          className="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 z-50 p-2 sm:p-3 bg-slate-900/80 border border-slate-800 hover:bg-slate-800 rounded-full text-slate-300 hover:text-white transition-colors cursor-pointer shadow-lg"
           aria-label="Siguiente fotografía"
         >
           <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6" />
@@ -121,8 +212,8 @@ export function LightboxModal({
       )}
 
       {/* Área Central: Imagen y Metadatos */}
-      <div className="max-w-5xl w-full max-h-[92vh] flex flex-col items-center justify-between gap-2 sm:gap-4 px-2">
-        {/* Header Metadatos */}
+      <div className="max-w-5xl w-full max-h-[94vh] flex flex-col items-center justify-between gap-2 sm:gap-3 px-2">
+        {/* Header Metadatos y Barra de Controles de Zoom */}
         <div className="w-full flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 bg-slate-900/90 border border-slate-800/80 rounded-xl sm:rounded-2xl">
           <div className="flex items-center gap-2">
             <span className="font-mono font-bold text-xs sm:text-sm bg-sky-600 px-2.5 py-0.5 sm:py-1 rounded-lg text-white">
@@ -131,6 +222,45 @@ export function LightboxModal({
             <span className="text-xs sm:text-sm font-semibold text-slate-300 truncate max-w-[120px] sm:max-w-[200px]">
               {currentItem.original_filename || `Foto-${formattedPos}`}
             </span>
+          </div>
+
+          {/* BARRA DE ZOOM INTERACTIVO */}
+          <div className="flex items-center gap-1.5 bg-slate-950/80 border border-slate-700/80 px-2 py-1 rounded-xl shadow-inner">
+            <button
+              onClick={handleZoomOut}
+              disabled={zoomScale <= 1}
+              className="p-1 text-slate-300 hover:text-white disabled:opacity-30 rounded hover:bg-slate-800 transition-colors cursor-pointer"
+              title="Alejar zoom (-)"
+            >
+              <ZoomOut className="w-4 h-4" />
+            </button>
+
+            <button
+              onClick={handleToggleZoom}
+              className="font-mono text-xs font-bold text-sky-400 hover:text-sky-300 px-1.5 py-0.5 rounded transition-colors cursor-pointer"
+              title="Doble clic o clic aquí para ampliar / restablecer"
+            >
+              {Math.round(zoomScale * 100)}%
+            </button>
+
+            <button
+              onClick={handleZoomIn}
+              disabled={zoomScale >= 4}
+              className="p-1 text-slate-300 hover:text-white disabled:opacity-30 rounded hover:bg-slate-800 transition-colors cursor-pointer"
+              title="Acercar zoom (+)"
+            >
+              <ZoomIn className="w-4 h-4" />
+            </button>
+
+            {zoomScale > 1 && (
+              <button
+                onClick={resetZoom}
+                className="p-1 text-amber-400 hover:text-amber-300 rounded hover:bg-slate-800 transition-colors cursor-pointer ml-1"
+                title="Restablecer a tamaño normal (0)"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-2 sm:gap-4 text-[10px] sm:text-xs text-slate-400">
@@ -153,13 +283,41 @@ export function LightboxModal({
           </div>
         </div>
 
-        {/* Imagen principal */}
-        <div className="relative flex-1 w-full flex items-center justify-center min-h-0 overflow-hidden py-1">
+        {/* CONTENEDOR CON ZOOM Y PANEO INTERACTIVO */}
+        <div
+          ref={containerRef}
+          onWheel={handleWheel}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+          onDoubleClick={handleToggleZoom}
+          className={`relative flex-1 w-full flex items-center justify-center min-h-[50vh] max-h-[68vh] sm:max-h-[72vh] overflow-hidden py-1 touch-none select-none rounded-xl sm:rounded-2xl border border-slate-800 bg-black/40 ${
+            zoomScale > 1
+              ? isPanning
+                ? 'cursor-grabbing'
+                : 'cursor-grab'
+              : 'cursor-zoom-in'
+          }`}
+          title={zoomScale > 1 ? 'Arrastra para moverte por la foto. Doble clic para 100%.' : 'Doble clic o rueda del mouse para ampliar letras.'}
+        >
           <img
             src={currentItem.public_url}
             alt={`Fotografía ${formattedPos}`}
-            className="max-w-full max-h-[65vh] sm:max-h-[70vh] object-contain rounded-xl sm:rounded-2xl shadow-2xl border border-slate-800"
+            draggable={false}
+            style={{
+              transform: `translate3d(${panOffset.x}px, ${panOffset.y}px, 0) scale(${zoomScale})`,
+              transition: isPanning ? 'none' : 'transform 0.15s ease-out',
+            }}
+            className="max-w-full max-h-full object-contain rounded-xl shadow-2xl pointer-events-none"
           />
+
+          {/* Guía visual sutil cuando está ampliada */}
+          {zoomScale > 1 && (
+            <div className="absolute bottom-2 left-2 bg-slate-900/80 backdrop-blur-md px-2.5 py-1 rounded-lg text-[10px] text-sky-300 border border-slate-700/60 pointer-events-none shadow-md">
+              Arrastra con el mouse para panear • Doble clic para 100%
+            </div>
+          )}
         </div>
 
         {/* Barra de Acciones */}

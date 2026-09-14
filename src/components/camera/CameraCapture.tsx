@@ -22,6 +22,8 @@ import {
   Loader2,
   Layers,
   AlertCircle,
+  Focus,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { Project, ProjectItem } from '@/lib/types';
 
@@ -75,6 +77,97 @@ export function CameraCapture({
     return false;
   });
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
+  const [antiBandingMode, setAntiBandingMode] = useState<'auto' | '60hz' | '50hz'>('60hz');
+  const [focusIndicator, setFocusIndicator] = useState<{ x: number; y: number; visible: boolean }>({
+    x: 0,
+    y: 0,
+    visible: false,
+  });
+  const focusTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Enfoque táctil (Tap-to-focus) interactivo y continuo
+  const triggerFocus = useCallback(async (coords?: { x: number; y: number }) => {
+    if (coords) {
+      setFocusIndicator({ x: coords.x, y: coords.y, visible: true });
+      if (focusTimeoutRef.current) clearTimeout(focusTimeoutRef.current);
+      focusTimeoutRef.current = setTimeout(() => {
+        setFocusIndicator((prev) => ({ ...prev, visible: false }));
+      }, 1500);
+    }
+
+    try {
+      if (!videoRef.current || !videoRef.current.srcObject) return;
+      const stream = videoRef.current.srcObject as MediaStream;
+      const track = stream.getVideoTracks()[0];
+      if (!track) return;
+
+      const capabilities = (track.getCapabilities ? track.getCapabilities() : {}) as any;
+      const advancedConstraints: any = {};
+
+      if (capabilities.focusMode && Array.isArray(capabilities.focusMode)) {
+        if (capabilities.focusMode.includes('continuous')) {
+          advancedConstraints.focusMode = 'continuous';
+        } else if (capabilities.focusMode.includes('auto')) {
+          advancedConstraints.focusMode = 'auto';
+        }
+      }
+
+      if (capabilities.exposureMode && Array.isArray(capabilities.exposureMode)) {
+        if (capabilities.exposureMode.includes('continuous')) {
+          advancedConstraints.exposureMode = 'continuous';
+        }
+      }
+
+      // Si el dispositivo soporta puntos específicos de interés
+      if (coords && capabilities.pointsOfInterest && videoRef.current) {
+        const rect = videoRef.current.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          advancedConstraints.pointsOfInterest = [
+            {
+              x: Math.max(0, Math.min(1, coords.x / rect.width)),
+              y: Math.max(0, Math.min(1, coords.y / rect.height)),
+            },
+          ];
+        }
+      }
+
+      if (Object.keys(advancedConstraints).length > 0) {
+        await track.applyConstraints({
+          advanced: [advancedConstraints],
+        } as any);
+      }
+    } catch (err) {
+      console.debug('No se pudo aplicar constraint de foco:', err);
+    }
+  }, []);
+
+  const handleVideoPointerDown = (e: React.PointerEvent<HTMLVideoElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    triggerFocus({ x, y });
+  };
+
+  const toggleAntiBanding = async () => {
+    const nextMode = antiBandingMode === '60hz' ? '50hz' : antiBandingMode === '50hz' ? 'auto' : '60hz';
+    setAntiBandingMode(nextMode);
+
+    const fps = nextMode === '60hz' ? 60 : nextMode === '50hz' ? 50 : 30;
+    showToast(`Antibandas: ${nextMode.toUpperCase()} (${fps} Hz - Pantallas)`, 'info');
+
+    try {
+      if (!videoRef.current || !videoRef.current.srcObject) return;
+      const stream = videoRef.current.srcObject as MediaStream;
+      const track = stream.getVideoTracks()[0];
+      if (track) {
+        await track.applyConstraints({
+          frameRate: { ideal: fps },
+        });
+      }
+    } catch (e) {
+      console.debug('No se pudo actualizar framerate para antibandas:', e);
+    }
+  };
 
   // Cola de subida en segundo plano
   const [uploadQueue, setUploadQueue] = useState<QueueItem[]>([]);
@@ -95,11 +188,13 @@ export function CameraCapture({
     }
   }, [project.next_position, replacementTargetItem]);
 
-  // Manejo del flujo de cámara en vivo (getUserMedia) optimizado para panorámica horizontal
+  // Manejo del flujo de cámara en vivo (getUserMedia) optimizado para panorámica horizontal y antibandas
   useEffect(() => {
     let stream: MediaStream | null = null;
 
     if (liveStreamActive && !previewUrl) {
+      const fps = antiBandingMode === '60hz' ? 60 : antiBandingMode === '50hz' ? 50 : 30;
+
       navigator.mediaDevices
         ?.getUserMedia({
           video: {
@@ -107,6 +202,7 @@ export function CameraCapture({
             width: { ideal: 2560, min: 1280 },
             height: { ideal: 1440, min: 720 },
             aspectRatio: { ideal: 16 / 9 },
+            frameRate: { ideal: fps, min: 24 },
           },
           audio: false,
         })
@@ -115,6 +211,15 @@ export function CameraCapture({
           if (videoRef.current) {
             videoRef.current.srcObject = mediaStream;
             videoRef.current.play().catch(() => {});
+          }
+
+          // Inicializar autofoco continuo en el sensor
+          const track = mediaStream.getVideoTracks()[0];
+          if (track) {
+            const capabilities = (track.getCapabilities ? track.getCapabilities() : {}) as any;
+            if (capabilities.focusMode?.includes('continuous')) {
+              track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] as any }).catch(() => {});
+            }
           }
         })
         .catch((err) => {
@@ -132,7 +237,7 @@ export function CameraCapture({
         stream.getTracks().forEach((track) => track.stop());
       }
     };
-  }, [liveStreamActive, facingMode, previewUrl, showToast]);
+  }, [liveStreamActive, facingMode, antiBandingMode, previewUrl, showToast]);
 
   // ----------------------------------------------------
   // WORKER DE COLA EN SEGUNDO PLANO (FIFO SECUENCIAL Y ROBUSTO)
@@ -431,10 +536,33 @@ export function CameraCapture({
     if (file) handleFileSelected(file);
   };
 
-  const handleCaptureLiveFrame = () => {
-    if (!videoRef.current || !canvasRef.current) return;
+  const handleCaptureLiveFrame = async () => {
+    if (!videoRef.current) return;
+
+    // Disparar autofoco antes de la captura
+    await triggerFocus();
 
     const video = videoRef.current;
+    const stream = video.srcObject as MediaStream | null;
+    const track = stream?.getVideoTracks()[0];
+
+    // Intento con ImageCapture nativo si está disponible en Android Chrome (máxima nitidez y autofoco del hardware)
+    if (track && typeof window !== 'undefined' && 'ImageCapture' in window) {
+      try {
+        const imageCapture = new (window as any).ImageCapture(track);
+        const blob = await imageCapture.takePhoto();
+        const file = new File([blob], `foto_${currentPosition}_${Date.now()}.jpg`, {
+          type: 'image/jpeg',
+        });
+        handleFileSelected(file);
+        return;
+      } catch (e) {
+        console.debug('ImageCapture fallback to canvas:', e);
+      }
+    }
+
+    // Fallback estándar a canvas de alta resolución
+    if (!canvasRef.current) return;
     const canvas = canvasRef.current;
     canvas.width = video.videoWidth || 1280;
     canvas.height = video.videoHeight || 720;
@@ -450,7 +578,7 @@ export function CameraCapture({
         type: 'image/jpeg',
       });
       handleFileSelected(file);
-    }, 'image/jpeg', 0.9);
+    }, 'image/jpeg', 0.92);
   };
 
   const handleDiscardPreview = () => {
@@ -631,8 +759,25 @@ export function CameraCapture({
                 playsInline
                 muted
                 autoPlay
-                className="w-full h-full object-contain landscape:object-cover"
+                onPointerDown={handleVideoPointerDown}
+                className="w-full h-full object-contain landscape:object-cover cursor-crosshair"
               />
+
+              {/* Indicador visual animado de enfoque táctil (Tap-to-focus) */}
+              {focusIndicator.visible && (
+                <div
+                  className="pointer-events-none absolute z-40 -translate-x-1/2 -translate-y-1/2 w-16 h-16 border-2 border-amber-400 rounded-lg shadow-xl shadow-amber-500/30 animate-pulse flex items-center justify-center"
+                  style={{
+                    left: `${focusIndicator.x}px`,
+                    top: `${focusIndicator.y}px`,
+                  }}
+                >
+                  <div className="w-2.5 h-2.5 bg-amber-400 rounded-full shadow-sm" />
+                  <span className="absolute -bottom-5 text-[9px] font-mono font-bold text-amber-300 bg-slate-950/90 px-1.5 py-0.5 rounded border border-amber-500/40">
+                    ENFOCANDO
+                  </span>
+                </div>
+              )}
 
               {/* Controles Flotantes Superiores en el Visor */}
               <div className="absolute top-3 left-3 z-30 flex items-center gap-2">
@@ -659,36 +804,63 @@ export function CameraCapture({
             </div>
 
             {/* BARRA LATERAL DE CONTROL (A LA DERECHA EN HORIZONTAL, ABAJO EN VERTICAL) */}
-            <div className="w-full landscape:w-28 landscape:h-full bg-slate-950/80 backdrop-blur-md border-t landscape:border-t-0 landscape:border-l border-slate-800 flex landscape:flex-col items-center justify-around landscape:justify-center p-3 landscape:py-6 landscape:gap-6 z-40 shrink-0 shadow-2xl">
+            <div className="w-full landscape:w-28 landscape:h-full bg-slate-950/85 backdrop-blur-md border-t landscape:border-t-0 landscape:border-l border-slate-800 flex landscape:flex-col items-center justify-around landscape:justify-center p-3 landscape:py-4 landscape:gap-3.5 z-40 shrink-0 shadow-2xl">
               {/* Botón de Cambiar Cámara Frontal/Trasera */}
               <button
                 onClick={() => setFacingMode((prev) => (prev === 'environment' ? 'user' : 'environment'))}
-                className="p-3 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white rounded-full border border-slate-700 active:scale-95 transition-all cursor-pointer shadow-lg"
+                className="p-2.5 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white rounded-full border border-slate-700 active:scale-95 transition-all cursor-pointer shadow-lg"
                 title="Girar cámara"
               >
-                <SwitchCamera className="w-5 h-5" />
+                <SwitchCamera className="w-4 h-4 sm:w-5 sm:h-5" />
+              </button>
+
+              {/* Botón Antibandas (Frecuencia 60Hz / 50Hz / Auto contra parpadeo de pantalla) */}
+              <button
+                onClick={toggleAntiBanding}
+                className="p-2 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white rounded-full border border-slate-700 active:scale-95 transition-all cursor-pointer shadow-lg flex flex-col items-center justify-center min-w-[42px] min-h-[42px]"
+                title={`Filtro Antibandas: ${antiBandingMode.toUpperCase()} (Toca para alternar 60Hz/50Hz/Auto)`}
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5 text-sky-400" />
+                <span className="text-[7.5px] font-mono font-bold text-sky-300 uppercase leading-none mt-0.5">
+                  {antiBandingMode === 'auto' ? 'Auto' : antiBandingMode}
+                </span>
+              </button>
+
+              {/* Botón de Enfoque Rápido Manual */}
+              <button
+                onClick={() => {
+                  if (videoRef.current) {
+                    const rect = videoRef.current.getBoundingClientRect();
+                    triggerFocus({ x: rect.width / 2, y: rect.height / 2 });
+                    showToast('Enfocando imagen...', 'info');
+                  }
+                }}
+                className="p-2.5 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white rounded-full border border-slate-700 active:scale-95 transition-all cursor-pointer shadow-lg"
+                title="Enfocar centro de la pantalla"
+              >
+                <Focus className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" />
               </button>
 
               {/* BOTÓN OBTURADOR PRINCIPAL (EN EL LATERAL DERECHO) */}
               <button
                 onClick={handleCaptureLiveFrame}
-                className="w-20 h-20 landscape:w-22 landscape:h-22 rounded-full bg-white/20 border-4 border-white flex items-center justify-center active:scale-90 transition-transform shadow-2xl group cursor-pointer ring-4 ring-black/40"
+                className="w-18 h-18 landscape:w-20 landscape:h-20 rounded-full bg-white/20 border-4 border-white flex items-center justify-center active:scale-90 transition-transform shadow-2xl group cursor-pointer ring-4 ring-black/40"
                 aria-label="Tomar fotografía"
               >
-                <div className="w-15 h-15 landscape:w-16 landscape:h-16 rounded-full bg-white group-hover:bg-sky-400 transition-colors shadow-inner" />
+                <div className="w-13 h-13 landscape:w-15 landscape:h-15 rounded-full bg-white group-hover:bg-sky-400 transition-colors shadow-inner" />
               </button>
 
               {/* Toggle de Modo Ráfaga */}
               <button
                 onClick={() => setAutoUpload(!autoUpload)}
-                className={`p-3 rounded-full border active:scale-95 transition-all cursor-pointer shadow-lg ${
+                className={`p-2.5 rounded-full border active:scale-95 transition-all cursor-pointer shadow-lg ${
                   autoUpload
                     ? 'bg-amber-500/20 border-amber-500 text-amber-400'
                     : 'bg-slate-900 border-slate-700 text-slate-500'
                 }`}
                 title={autoUpload ? 'Modo Ráfaga Activo (Auto-encolar)' : 'Modo Ráfaga Desactivado'}
               >
-                <Zap className={`w-5 h-5 ${autoUpload ? 'fill-amber-400 text-amber-400' : ''}`} />
+                <Zap className={`w-4 h-4 sm:w-5 sm:h-5 ${autoUpload ? 'fill-amber-400 text-amber-400' : ''}`} />
               </button>
             </div>
           </div>

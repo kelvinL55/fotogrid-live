@@ -67,8 +67,10 @@ export function GridItem({
   const [copiedRecently, setCopiedRecently] = useState(false);
   const [imageLoadError, setImageLoadError] = useState(false);
   const draggedItemsRef = useRef<ProjectItem[]>([]);
+  const isDraggingRef = useRef(false);
+  const dragTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const isDenseGrid = density === 20;
+  const isDenseGrid = density === 15 || density === 20;
   const formattedPos = formatPositionNumber(item?.position ?? 0);
   const isActive = item?.status === 'active';
   const isEmpty = item?.status === 'empty';
@@ -185,6 +187,8 @@ export function GridItem({
 
   const handleDragStart = (e: React.DragEvent) => {
     if (!item?.public_url || imageLoadError) return;
+    isDraggingRef.current = true;
+    if (dragTimeoutRef.current) clearTimeout(dragTimeoutRef.current);
 
     // Configurar payload de multi-drag o single drag
     const draggedItems = setupMultiImageDrag({
@@ -204,6 +208,12 @@ export function GridItem({
       onMarkCopied?.(dragged.map((i) => i.id));
     }
     draggedItemsRef.current = [];
+
+    // Cooldown para evitar que el clic sintético al soltar el ratón abra el lightbox
+    if (dragTimeoutRef.current) clearTimeout(dragTimeoutRef.current);
+    dragTimeoutRef.current = setTimeout(() => {
+      isDraggingRef.current = false;
+    }, 250);
   };
 
   return (
@@ -216,6 +226,7 @@ export function GridItem({
         setMenuOpen(true);
       }}
       onClick={() => {
+        if (isDraggingRef.current) return;
         if (isMultiSelectMode && onToggleSelect) {
           onToggleSelect(item);
         } else if (isActive && item?.public_url) {
@@ -484,8 +495,8 @@ export function GridItem({
         </div>
       )}
 
-      {/* Timestamp sutil solo en pantallas grandes con hover para que no tape la imagen */}
-      {isActive && item.uploaded_at && (
+      {/* Timestamp sutil solo en pantallas grandes con hover para que no tape la imagen y NUNCA en grillas densas (15 o 20) */}
+      {isActive && item.uploaded_at && !isDenseGrid && (
         <div className="z-10 bg-slate-950/80 backdrop-blur-md px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] text-slate-400 self-start border border-slate-800/80 hidden lg:group-hover:block transition-opacity">
           {new Date(item.uploaded_at).toLocaleTimeString('es-ES', {
             hour: '2-digit',
